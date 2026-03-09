@@ -323,9 +323,9 @@ def load_all_data(selected_datasets: tuple, divisi_filter: str):
     anomaly = fetch_anomaly_koordinat(client, dataset_tags=ANOMALY_TAGS, divisi=div_arg)
 
     # Coba SQL Views
-    divisi_summary = fetch_divisi_summary(client, dataset_tags=tags)
+    divisi_summary = fetch_divisi_summary(client, dataset_tags=tags, divisi=div_arg)
     blok_summary   = fetch_blok_summary(client, dataset_tags=tags, divisi=div_arg)
-    transition     = fetch_transition_matrix(client, dataset_tags=tags)
+    transition     = fetch_transition_matrix(client, dataset_tags=tags, divisi=div_arg)
     view_ok        = len(divisi_summary) > 0
 
     if not view_ok:

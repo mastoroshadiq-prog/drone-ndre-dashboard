@@ -112,11 +112,15 @@ def fetch_paginated(
 def fetch_divisi_summary(
     client: Client,
     dataset_tags: Optional[List[str]] = None,
+    divisi: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Ambil ringkasan per divisi dari vw_ndre_divisi_summary."""
     filters = []
     if dataset_tags:
         filters.append({"op": "in", "column": "dataset_tag", "value": dataset_tags})
+    if divisi and divisi != "SEMUA":
+        filters.append({"op": "eq", "column": "divisi", "value": divisi})
+        
     try:
         return fetch_paginated(
             client, "vw_ndre_divisi_summary", "*",
@@ -150,11 +154,15 @@ def fetch_blok_summary(
 def fetch_transition_matrix(
     client: Client,
     dataset_tags: Optional[List[str]] = None,
+    divisi: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Ambil matriks transisi klasifikasi dari vw_ndre_transition."""
     filters = []
     if dataset_tags:
         filters.append({"op": "in", "column": "dataset_tag", "value": dataset_tags})
+    if divisi and divisi != "SEMUA":
+        filters.append({"op": "eq", "column": "divisi", "value": divisi})
+        
     try:
         return fetch_paginated(
             client, "vw_ndre_transition", "*",
