@@ -7,7 +7,7 @@ import re
 from supabase_helper import get_supabase_client, fetch_comparison_sample, fetch_koordinat_blok
 
 def format_blok_display(blok):
-    match = re.match(r'^([A-Z])(\d+)([A-Z]?)$', str(blok))
+    match = re.match(r'^([A-Z])(\d+)([A-Z]?)$', str(blok).strip())
     if match:
         charPart = match.group(1)
         numPart = int(match.group(2))
