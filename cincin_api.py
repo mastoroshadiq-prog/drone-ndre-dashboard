@@ -4,6 +4,7 @@ import streamlit as st
 import folium
 from streamlit_folium import st_folium
 import plotly.express as px
+from scipy.spatial import KDTree
 
 from supabase_helper import get_supabase_client, fetch_comparison_sample, fetch_koordinat_blok
 
@@ -40,10 +41,11 @@ def load_cincin_data(selected_dataset_tag: str, sel_div: str, sel_blok: str):
     return raw_rows, coord_rows
 
 def get_stats_html(df, suffix):
-    core = (df[f"z_score_{suffix}"] <= -1.5).sum()
-    ring1 = ((df[f"z_score_{suffix}"] > -1.5) & (df[f"z_score_{suffix}"] <= -1.0)).sum()
-    ring2 = ((df[f"z_score_{suffix}"] > -1.0) & (df[f"z_score_{suffix}"] <= -0.5)).sum()
-    sehat = (df[f"z_score_{suffix}"] > -0.5).sum()
+    kat_col = f"kategori_{suffix}"
+    core = (df[kat_col] == "🔴 MERAH (INTI)").sum()
+    ring1 = (df[kat_col] == "🟠 ORANYE (CINCIN)").sum()
+    ring2 = (df[kat_col] == "🟡 KUNING (SUSPECT)").sum()
+    sehat = (df[kat_col] == "🟢 HIJAU (SEHAT)").sum()
 
     html = f"""
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 15px;">
@@ -67,7 +69,7 @@ def get_stats_html(df, suffix):
     """
     return html
 
-def calc_z_score_and_map(df, val_col, suffix):
+def calc_z_score_and_map(df, val_col, suffix, ring1_radius=10.0, ring2_radius=20.0):
     mean_val = df[val_col].mean()
     std_val = df[val_col].std()
     if pd.isna(std_val) or std_val == 0:
@@ -76,18 +78,43 @@ def calc_z_score_and_map(df, val_col, suffix):
     z_scores = (df[val_col] - mean_val) / std_val
     df[f"z_score_{suffix}"] = z_scores
     
-    df[f"kategori_{suffix}"] = "NORMAL"
+    # Kategori default: Hijau (Sehat)
+    df[f"kategori_{suffix}"] = "🟢 HIJAU (SEHAT)"
     df[f"warna_{suffix}"] = "#d1f2eb" # Hijau transparan
     df[f"radius_{suffix}"] = 3
     df[f"fill_opacity_{suffix}"] = 0.5
     
-    m_core = z_scores <= -1.5
-    m_ring1 = (z_scores > -1.5) & (z_scores <= -1.0)
-    m_ring2 = (z_scores > -1.0) & (z_scores <= -0.5)
+    # Aproksimasi derajat Lat/Lon ke Meter (Ekuator)
+    if "x_m" not in df.columns:
+        LAT_TO_M = 111320.0
+        LON_TO_M = 111320.0 * np.cos(np.radians(df["latitude"].mean()))
+        df["x_m"] = df["longitude"] * LON_TO_M
+        df["y_m"] = df["latitude"] * LAT_TO_M
     
-    df.loc[m_core, [f"kategori_{suffix}", f"warna_{suffix}", f"radius_{suffix}", f"fill_opacity_{suffix}"]] = ["🔥 CORE (MERAH)", "#c0392b", 5, 0.9]
-    df.loc[m_ring1, [f"kategori_{suffix}", f"warna_{suffix}", f"radius_{suffix}", f"fill_opacity_{suffix}"]] = ["🟠 RING 1 (ORANYE)", "#e67e22", 5, 0.8]
-    df.loc[m_ring2, [f"kategori_{suffix}", f"warna_{suffix}", f"radius_{suffix}", f"fill_opacity_{suffix}"]] = ["🟡 RING 2 (KUNING)", "#f1c40f", 4, 0.7]
+    # 1. Deteksi Core Ekstrem (Z <= -1.5)
+    m_core = z_scores <= -1.5
+    df.loc[m_core, [f"kategori_{suffix}", f"warna_{suffix}", f"radius_{suffix}", f"fill_opacity_{suffix}"]] = [
+        "🔴 MERAH (INTI)", "#c0392b", 6, 0.9]
+    
+    core_points = df[m_core][["x_m", "y_m"]].values
+    
+    # 2. Deteksi Ketetanggaan (Ring 1 & Ring 2)
+    if len(core_points) > 0:
+        core_tree = KDTree(core_points)
+        all_points = df[["x_m", "y_m"]].values
+        
+        # Cari jarak titik ini ke Core terdekat
+        distances, _ = core_tree.query(all_points, k=1)
+        
+        # Syarat "tertular" (spatial): berada dalam radius X meter DARI core, DAN punya kerentanan (Z <= 0).
+        # Jika sangat sehat (Z > 0), tidak dihitung tertular walau dekat.
+        m_ring1 = (distances <= ring1_radius) & (~m_core) & (z_scores <= -0.2)
+        m_ring2 = (distances <= ring2_radius) & (~m_core) & (~m_ring1) & (z_scores <= 0.0)
+        
+        df.loc[m_ring1, [f"kategori_{suffix}", f"warna_{suffix}", f"radius_{suffix}", f"fill_opacity_{suffix}"]] = [
+            "🟠 ORANYE (CINCIN)", "#e67e22", 5, 0.8]
+        df.loc[m_ring2, [f"kategori_{suffix}", f"warna_{suffix}", f"radius_{suffix}", f"fill_opacity_{suffix}"]] = [
+            "🟡 KUNING (SUSPECT)", "#f1c40f", 5, 0.7]
     
     return df
 
@@ -101,7 +128,7 @@ def create_folium_map(df, val_col, suffix, year):
     for _, row in df.iterrows():
         warna = row[f"warna_{suffix}"]
         kategori = row[f"kategori_{suffix}"]
-        kat_label = "NORMAL (AMAN)" if kategori == "NORMAL" else kategori
+        kat_label = kategori
 
         tt_html = f'''
             <div style="font-family:sans-serif;min-width:140px;">
@@ -115,8 +142,8 @@ def create_folium_map(df, val_col, suffix, year):
         folium.CircleMarker(
             location=[row["latitude"], row["longitude"]],
             radius=row[f"radius_{suffix}"],
-            color=warna if kategori != "NORMAL" else "#27ae60",
-            weight=1 if kategori == "NORMAL" else 2,
+            color=warna if kategori != "🟢 HIJAU (SEHAT)" else "#27ae60",
+            weight=1 if kategori == "🟢 HIJAU (SEHAT)" else 2,
             fill=True,
             fill_color=warna,
             fill_opacity=row[f"fill_opacity_{suffix}"],
