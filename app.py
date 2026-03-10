@@ -23,7 +23,7 @@ from supabase_helper import (
     fetch_koordinat_blok,
     get_supabase_client,
 )
-from cincin_api import render_cincin_api_tab, format_blok_display
+from cincin_api import render_cincin_api_tab
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -56,6 +56,21 @@ def safe_div(a, b, default=0.0):
 
 def pct_str(a, b):
     return f"{safe_div(a, b):.1f}%"
+
+import re
+def format_blok_display(blok):
+    match = re.match(r'^([A-Z])(\d+)([A-Z]?)$', str(blok).strip())
+    if match:
+        charPart = match.group(1)
+        numPart = int(match.group(2))
+        suffixPart = match.group(3)
+        if not suffixPart:
+            if charPart == 'F' and numPart == 8:
+                suffixPart = 'B'
+            else:
+                suffixPart = 'A'
+        return f'{charPart}{numPart:03d}{suffixPart}'
+    return blok
 
 
 def health_score(divisi_rows: List[Dict]) -> Dict:
