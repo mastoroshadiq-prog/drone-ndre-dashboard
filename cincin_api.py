@@ -39,16 +39,74 @@ def load_cincin_data(selected_dataset_tag: str, sel_div: str, sel_blok: str):
     
     return raw_rows, coord_rows
 
+def calc_z_score_and_map(df, val_col, suffix):
+    mean_val = df[val_col].mean()
+    std_val = df[val_col].std()
+    if pd.isna(std_val) or std_val == 0:
+        std_val = 1e-6
+    
+    z_scores = (df[val_col] - mean_val) / std_val
+    df[f"z_score_{suffix}"] = z_scores
+    
+    df[f"kategori_{suffix}"] = "NORMAL"
+    df[f"warna_{suffix}"] = "#d1f2eb" # Hijau transparan
+    df[f"radius_{suffix}"] = 3
+    df[f"fill_opacity_{suffix}"] = 0.5
+    
+    m_core = z_scores <= -1.5
+    m_ring1 = (z_scores > -1.5) & (z_scores <= -1.0)
+    m_ring2 = (z_scores > -1.0) & (z_scores <= -0.5)
+    
+    df.loc[m_core, [f"kategori_{suffix}", f"warna_{suffix}", f"radius_{suffix}", f"fill_opacity_{suffix}"]] = ["🔥 CORE (MERAH)", "#c0392b", 5, 0.9]
+    df.loc[m_ring1, [f"kategori_{suffix}", f"warna_{suffix}", f"radius_{suffix}", f"fill_opacity_{suffix}"]] = ["🟠 RING 1 (ORANYE)", "#e67e22", 5, 0.8]
+    df.loc[m_ring2, [f"kategori_{suffix}", f"warna_{suffix}", f"radius_{suffix}", f"fill_opacity_{suffix}"]] = ["🟡 RING 2 (KUNING)", "#f1c40f", 4, 0.7]
+    
+    return df
+
+def create_folium_map(df, val_col, suffix, year):
+    center_lat = df["latitude"].mean()
+    center_lon = df["longitude"].mean()
+    
+    m = folium.Map(location=[center_lat, center_lon], zoom_start=17, max_zoom=20)
+    folium.TileLayer('CartoDB positron', name="CartoDB Light").add_to(m)
+
+    for _, row in df.iterrows():
+        warna = row[f"warna_{suffix}"]
+        kategori = row[f"kategori_{suffix}"]
+        kat_label = "NORMAL (AMAN)" if kategori == "NORMAL" else kategori
+
+        tt_html = f'''
+            <div style="font-family:sans-serif;min-width:140px;">
+                <strong style="color:{warna}">{kat_label}</strong><br><br>
+                <b>Row:</b> {int(row['n_baris'])} | <b>Tree:</b> {int(row['n_pokok'])}<br>
+                <b>NDRE {year}:</b> {row[val_col]:.3f}<br>
+                <b>Z-Score:</b> {row[f"z_score_{suffix}"]:.2f}<br>
+            </div>
+        '''
+        
+        folium.CircleMarker(
+            location=[row["latitude"], row["longitude"]],
+            radius=row[f"radius_{suffix}"],
+            color=warna if kategori != "NORMAL" else "#27ae60",
+            weight=1 if kategori == "NORMAL" else 2,
+            fill=True,
+            fill_color=warna,
+            fill_opacity=row[f"fill_opacity_{suffix}"],
+            tooltip=folium.Tooltip(tt_html)
+        ).add_to(m)
+        
+    return m
+
 def render_cincin_api_tab(data: dict, selected_dataset_tag: str):
-    st.header("🔥 Cincin Api (Ring of Fire) - Level Pohon")
-    st.caption("Deteksi penyebaran stres vegetasi spasial berbasis Z-Score NDRE 2025 vs 2026.")
+    st.header("🔥 Cincin Api (Ring of Fire) - Perbandingan 2025 vs 2026")
+    st.caption("Deteksi pergeseran pusat stres vegetasi spasial berbasis Z-Score NDRE untuk Blok yang sama.")
 
     blok_rows = data.get("blok_summary", [])
     if not blok_rows:
         st.info("Data ringkasan blok tidak tersedia. Harap pastikan koneksi database baik.")
         return
 
-    # Cari blok yang memiliki data histori (2025) untuk perbandingan delta
+    # Cari blok yang memiliki data histori (2025) untuk perbandingan
     valid_bloks = [b for b in blok_rows if b.get('pohon_lengkap', 0) > 0]
     if not valid_bloks:
         st.warning("⚠️ Tidak ada blok dengan histori NDRE 2025 di dataset ini untuk dianalisis.")
@@ -69,7 +127,7 @@ def render_cincin_api_tab(data: dict, selected_dataset_tag: str):
         
     st.markdown("---")
 
-    with st.spinner(f"🔥 Menghitung sebaran Cincin Api {sel_div} - {sel_blok} ..."):
+    with st.spinner(f"🔥 Menyusun perbandingan Spasial {sel_div} - {sel_blok} ..."):
         raw_rows, coord_rows = load_cincin_data(selected_dataset_tag, sel_div, sel_blok)
         if not raw_rows or not coord_rows:
             st.error("❌ Data observasi atau koordinat tidak ditemukan untuk blok ini.")
@@ -86,16 +144,6 @@ def render_cincin_api_tab(data: dict, selected_dataset_tag: str):
         if df_ndre.empty:
             st.error("❌ Semua record NDRE di blok ini kehilangan data 2025 atau 2026 yang valid.")
             return
-
-        df_ndre["delta"] = df_ndre["val_2026"] - df_ndre["val_2025"]
-        
-        # Mapping z-score
-        mean_delta = df_ndre["delta"].mean()
-        std_delta = df_ndre["delta"].std()
-        if pd.isna(std_delta) or std_delta == 0:
-            std_delta = 1e-6
-            
-        df_ndre["z_score"] = (df_ndre["delta"] - mean_delta) / std_delta
         
         # Merge via n_baris + n_pokok
         df_coord["n_baris"] = pd.to_numeric(df_coord["n_baris"], errors='coerce')
@@ -110,72 +158,48 @@ def render_cincin_api_tab(data: dict, selected_dataset_tag: str):
             st.error("❌ Gagal menyatukan nilai NDRE dengan Koordinat GIS. Periksa anomali ID Pohon.")
             return
             
-        # Z-Score ke Cincin Api Categories
-        # Core (Sangat Menurun Ekstrem) => Merah
-        # Ring 1 (Menurun Signifikan) => Oranye
-        # Ring 2 (Menurun Sedikit) => Kuning
-        # Normal => Hijau Pucat
-        df["kategori"] = "NORMAL"
-        df["warna"] = "#d1f2eb" # Hijau transparan
-        df["radius"] = 3
-        df["fill_opacity"] = 0.5
+        # Hitung Z-Score + warna untuk masing-masing tahun
+        df = calc_z_score_and_map(df, "val_2025", "25")
+        df = calc_z_score_and_map(df, "val_2026", "26")
         
-        m_core = df["z_score"] <= -1.5
-        m_ring1 = (df["z_score"] > -1.5) & (df["z_score"] <= -1.0)
-        m_ring2 = (df["z_score"] > -1.0) & (df["z_score"] <= -0.5)
+        # Stats 2025
+        count_core_25 = (df["z_score_25"] <= -1.5).sum()
+        count_r1_25 = ((df["z_score_25"] > -1.5) & (df["z_score_25"] <= -1.0)).sum()
         
-        df.loc[m_core, ["kategori", "warna", "radius", "fill_opacity"]] = ["🔥 CORE (MERAH)", "#c0392b", 5, 0.9]
-        df.loc[m_ring1, ["kategori", "warna", "radius", "fill_opacity"]] = ["🟠 RING 1 (ORANYE)", "#e67e22", 5, 0.8]
-        df.loc[m_ring2, ["kategori", "warna", "radius", "fill_opacity"]] = ["🟡 RING 2 (KUNING)", "#f1c40f", 4, 0.7]
+        # Stats 2026
+        count_core_26 = (df["z_score_26"] <= -1.5).sum()
+        count_r1_26 = ((df["z_score_26"] > -1.5) & (df["z_score_26"] <= -1.0)).sum()
+        
+        # UI Kiri dan Kanan
+        col_map1, col_map2 = st.columns(2)
+        
+        with col_map1:
+            st.markdown(f"<h5 style='text-align: center;'>Penerbangan 2025</h5>", unsafe_allow_html=True)
+            map_25 = create_folium_map(df, "val_2025", "25", "2025")
+            st_folium(map_25, height=550, use_container_width=True, key="map25", returned_objects=[])
+            
+            st.markdown(
+                f"<div style='text-align:center; font-size: 0.9em;'>"
+                f"<b>Episentrum Stress (Z ≤ -1.5):</b> <span style='color:#c0392b;'>{count_core_25} pohon</span><br>"
+                f"<b>Ring 1 (-1.5 < Z ≤ -1.0):</b> <span style='color:#e67e22;'>{count_r1_25} pohon</span>"
+                f"</div>", 
+                unsafe_allow_html=True
+            )
+            
+        with col_map2:
+            st.markdown(f"<h5 style='text-align: center;'>Penerbangan 2026</h5>", unsafe_allow_html=True)
+            map_26 = create_folium_map(df, "val_2026", "26", "2026")
+            st_folium(map_26, height=550, use_container_width=True, key="map26", returned_objects=[])
 
-        # Menghitung statistik visual
-        count_core = m_core.sum()
-        count_r1 = m_ring1.sum()
-        count_r2 = m_ring2.sum()
-        count_n = len(df) - count_core - count_r1 - count_r2
-        
-        col_st1, col_st2, col_st3, col_st4 = st.columns(4)
-        col_st1.metric("🔴 Core Episentrum", f"{count_core} pohon", "Z ≤ -1.5", delta_color="inverse")
-        col_st2.metric("🟠 Ring 1 (Bahaya)", f"{count_r1} pohon", "-1.5 < Z ≤ -1.0", delta_color="inverse")
-        col_st3.metric("🟡 Ring 2 (Rentan)", f"{count_r2} pohon", "-1.0 < Z ≤ -0.5", delta_color="inverse")
-        col_st4.metric("🟢 Aman (Normal)", f"{count_n} pohon", "Z > -0.5", delta_color="normal")
+            st.markdown(
+                f"<div style='text-align:center; font-size: 0.9em;'>"
+                f"<b>Episentrum Stress (Z ≤ -1.5):</b> <span style='color:#c0392b;'>{count_core_26} pohon</span><br>"
+                f"<b>Ring 1 (-1.5 < Z ≤ -1.0):</b> <span style='color:#e67e22;'>{count_r1_26} pohon</span>"
+                f"</div>", 
+                unsafe_allow_html=True
+            )
         
         st.markdown("<br>", unsafe_allow_html=True)
-        
-        # Peta Folium (LeafletJS)
-        center_lat = df["latitude"].mean()
-        center_lon = df["longitude"].mean()
-        
-        m = folium.Map(location=[center_lat, center_lon], zoom_start=18, max_zoom=20)
-        # Tambah tile base yang cocok dengan tutupan lahan. Jika satelit butuh API key khusus, 
-        # kita pakai OpenStreetMap / CartoDB positron sebagai canvas bersih untuk koordinat pohon.
-        folium.TileLayer('CartoDB positron', name="CartoDB Light").add_to(m)
-
-        # Plot setiap pohon
-        for _, row in df.iterrows():
-            tt_html = f'''
-                <div style="font-family:sans-serif;min-width:140px;">
-                    <strong style="color:{row['warna']}">{row['kategori']}</strong><br><br>
-                    <b>Row:</b> {int(row['n_baris'])} | <b>Tree:</b> {int(row['n_pokok'])}<br>
-                    <b>NDRE 2026:</b> {row['val_2026']:.3f}<br>
-                    <b>Z-Score:</b> {row['z_score']:.2f}<br>
-                </div>
-            '''
-            
-            folium.CircleMarker(
-                location=[row["latitude"], row["longitude"]],
-                radius=row["radius"],
-                color=row["warna"] if row["kategori"] != "NORMAL" else "#27ae60",
-                weight=1 if row["kategori"] == "NORMAL" else 2,
-                fill=True,
-                fill_color=row["warna"],
-                fill_opacity=row["fill_opacity"],
-                tooltip=folium.Tooltip(tt_html)
-            ).add_to(m)
-
-        # Render Map in Streamlit
-        st_folium(m, width="100%", height=600, returned_objects=[])
-
-        st.caption(f"**Insight:** Menampilkan {len(df):,} titik pohon. "
-                   "Cincin Api (Cluster Merah-Oranye) mewakili penyebaran stres NDRE antar pohon bertetangga dalam Blok yang sama. "
-                   "Gunakan kontrol +/- di peta untuk zoom in level detil individu.")
+        st.caption(f"**Insight:** Menampilkan pergerakan Cincin Api antar tahun di blok {sel_div} - {sel_blok} ({len(df):,} pohon terdeteksi). "
+                   "Titik Merah (Core) dan Oranye (Ring 1) mengindikasikan pusat tekanan biologis tanaman yang ekstrem secara lokal (dibandingkan bloknya sendiri). "
+                   "Bandingkan antara peta Kiri dan Kanan untuk melihat apakah Cincin Api membesar, berpindah, atau mereda.")
