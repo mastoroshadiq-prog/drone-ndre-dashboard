@@ -1,10 +1,7 @@
 import pandas as pd
 import numpy as np
 import streamlit as st
-import folium
-from streamlit_folium import st_folium
-import plotly.express as px
-from scipy.spatial import KDTree
+import plotly.graph_objects as go
 
 from supabase_helper import get_supabase_client, fetch_comparison_sample, fetch_koordinat_blok
 
@@ -33,9 +30,7 @@ def load_cincin_data(selected_dataset_tag: str, sel_div: str, sel_blok: str):
     client = get_supabase_client()
     tags = [selected_dataset_tag] if selected_dataset_tag != "__ALL__" else None
     
-    # 1. Fetch raw comparison 
     raw_rows = fetch_comparison_sample(client, dataset_tags=tags, divisi=sel_div, blok=sel_blok, max_rows=10000)
-    # 2. Fetch koordinat
     coord_rows = fetch_koordinat_blok(client, dataset_tags=tags, divisi=sel_div, blok=sel_blok)
     
     return raw_rows, coord_rows
@@ -69,100 +64,102 @@ def get_stats_html(df, suffix):
     """
     return html
 
-def calc_z_score_and_map(df, val_col, suffix, smoothing_radius=15.0):
+def calc_z_score_and_map(df, val_col, suffix):
     mean_val = df[val_col].mean()
     std_val = df[val_col].std()
     if pd.isna(std_val) or std_val == 0:
         std_val = 1e-6
     
+    # Gunakan Pure Z-Score asli (tanpa smoothing) karena plot scatter
+    # Grid Lurus (n_baris vs n_pokok) secara alami akan memperlihatkan
+    # pola spasial tanpa noise lat/lon.
     raw_z_scores = (df[val_col] - mean_val) / std_val
-    df[f"raw_z_score_{suffix}"] = raw_z_scores
+    df[f"z_score_{suffix}"] = raw_z_scores
     
-    # Aproksimasi derajat Lat/Lon ke Meter (Ekuator)
-    if "x_m" not in df.columns:
-        LAT_TO_M = 111320.0
-        LON_TO_M = 111320.0 * np.cos(np.radians(df["latitude"].mean()))
-        df["x_m"] = df["longitude"] * LON_TO_M
-        df["y_m"] = df["latitude"] * LAT_TO_M
+    # 2. Thresholding pure Z-Score
+    m_core = raw_z_scores <= -1.5
+    m_ring1 = (raw_z_scores > -1.5) & (raw_z_scores <= -1.0)
+    m_ring2 = (raw_z_scores > -1.0) & (raw_z_scores <= -0.5)
     
-    # 1. Spatial Smoothing (Focal Mean) untuk menciptakan pola kontur/cincin alami
-    all_points = df[["x_m", "y_m"]].values
-    kd_tree = KDTree(all_points)
-    
-    # Cari semua tetangga dalam radius tertentu (misal 15 meter)
-    neighbors_list = kd_tree.query_ball_point(all_points, r=smoothing_radius)
-    
-    smoothed_z = np.zeros(len(df))
-    for i, neighbors in enumerate(neighbors_list):
-        # Hitung rata-rata Z-Score dari titik ini & pohon di sekelilingnya
-        smoothed_z[i] = raw_z_scores.iloc[neighbors].mean()
-        
-    df[f"z_score_{suffix}"] = smoothed_z
-    
-    # Kategori default: Hijau (Sehat)
     df[f"kategori_{suffix}"] = "🟢 HIJAU (SEHAT)"
-    df[f"warna_{suffix}"] = "#d1f2eb" # Hijau transparan
-    df[f"radius_{suffix}"] = 3
-    df[f"fill_opacity_{suffix}"] = 0.5
-    
-    # 2. Thresholding berdasarkan SMOOTHED Z-Score (Gradien Cincin)
-    m_core = smoothed_z <= -1.0
-    m_ring1 = (smoothed_z > -1.0) & (smoothed_z <= -0.5)
-    m_ring2 = (smoothed_z > -0.5) & (smoothed_z <= -0.2)
-    
-    df.loc[m_core, [f"kategori_{suffix}", f"warna_{suffix}", f"radius_{suffix}", f"fill_opacity_{suffix}"]] = [
-        "🔴 MERAH (INTI)", "#c0392b", 6, 0.9]
-    df.loc[m_ring1, [f"kategori_{suffix}", f"warna_{suffix}", f"radius_{suffix}", f"fill_opacity_{suffix}"]] = [
-        "🟠 ORANYE (CINCIN)", "#e67e22", 5, 0.8]
-    df.loc[m_ring2, [f"kategori_{suffix}", f"warna_{suffix}", f"radius_{suffix}", f"fill_opacity_{suffix}"]] = [
-        "🟡 KUNING (SUSPECT)", "#f1c40f", 5, 0.7]
+    df.loc[m_ring2, f"kategori_{suffix}"] = "🟡 KUNING (SUSPECT)"
+    df.loc[m_ring1, f"kategori_{suffix}"] = "🟠 ORANYE (CINCIN)"
+    df.loc[m_core, f"kategori_{suffix}"] = "🔴 MERAH (INTI)"
     
     return df
 
-def create_folium_map(df, val_col, suffix, year):
-    center_lat = df["latitude"].mean()
-    center_lon = df["longitude"].mean()
+def create_plotly_grid_map(df, val_col, suffix, year):
+    """Memutar koordinat murni dari nomor baris dan pokok agar lurus horizontal sempurna"""
+    fig = go.Figure()
     
-    m = folium.Map(location=[center_lat, center_lon], zoom_start=17, max_zoom=20)
-    folium.TileLayer('CartoDB positron', name="CartoDB Light").add_to(m)
-
-    for _, row in df.iterrows():
-        warna = row[f"warna_{suffix}"]
-        kategori = row[f"kategori_{suffix}"]
-        kat_label = kategori
-
-        tt_html = f'''
-            <div style="font-family:sans-serif;min-width:140px;">
-                <strong style="color:{warna}">{kat_label}</strong><br><br>
-                <b>Row:</b> {int(row['n_baris'])} | <b>Tree:</b> {int(row['n_pokok'])}<br>
-                <b>NDRE {year}:</b> {row[val_col]:.3f}<br>
-                <b>Z-Score:</b> {row[f"z_score_{suffix}"]:.2f}<br>
-            </div>
-        '''
+    # (Nama Kategori, Fill Color, Line Color, Radius Size)
+    categories = [
+        ("🟢 HIJAU (SEHAT)", "#eafae3", "#82e0aa", 8),
+        ("🟡 KUNING (SUSPECT)", "#f1c40f", "#d68910", 11),
+        ("🟠 ORANYE (CINCIN)", "#e67e22", "#ba4a00", 14),
+        ("🔴 MERAH (INTI)", "#c0392b", "#7b241c", 18)
+    ]
+    
+    for cat_name, fill_col, stroke_col, size in categories:
+        d_sub = df[df[f"kategori_{suffix}"] == cat_name]
+        if d_sub.empty:
+            continue
+            
+        # customdata array to feed tooltip natively (much faster than looping HTML)
+        customdata = d_sub[["n_baris", "n_pokok", val_col, f"z_score_{suffix}"]].values
         
-        folium.CircleMarker(
-            location=[row["latitude"], row["longitude"]],
-            radius=row[f"radius_{suffix}"],
-            color=warna if kategori != "🟢 HIJAU (SEHAT)" else "#27ae60",
-            weight=1 if kategori == "🟢 HIJAU (SEHAT)" else 2,
-            fill=True,
-            fill_color=warna,
-            fill_opacity=row[f"fill_opacity_{suffix}"],
-            tooltip=folium.Tooltip(tt_html)
-        ).add_to(m)
-        
-    return m
+        # Tooltip template
+        title = cat_name.split(' ')[1]  # ex: MERAH, ORANYE
+        hovertemplate = (
+            f"<b>{title}</b><br><br>" + 
+            "Row: %{customdata[0]:.0f} | Tree: %{customdata[1]:.0f}<br>" +
+            f"NDRE {year}: %{{customdata[2]:.3f}}<br>" +
+            "Z-Score: %{customdata[3]:.2f}<extra></extra>"
+        )
+
+        fig.add_trace(go.Scatter(
+            x=d_sub["n_pokok"],
+            y=d_sub["n_baris"],
+            mode="markers",
+            marker=dict(
+                size=size,
+                color=fill_col,
+                line=dict(color=stroke_col, width=1.8),
+                opacity=0.9
+            ),
+            name=cat_name,
+            customdata=customdata,
+            hovertemplate=hovertemplate
+        ))
+
+    fig.update_layout(
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+        xaxis=dict(showgrid=False, zeroline=False, title="", showticklabels=False),
+        yaxis=dict(showgrid=False, zeroline=False, title="", autorange="reversed", showticklabels=False),
+        margin=dict(l=0, r=0, t=10, b=0),
+        showlegend=False,
+        yaxis_scaleanchor="x",  # Mengunci grid agar bulat bundar / proporsional
+        dragmode="pan",
+        hoverlabel=dict(
+            bgcolor="white",
+            font_size=13,
+            font_family="Arial"
+        )
+    )
+    
+    return fig
 
 def render_cincin_api_tab(data: dict, selected_dataset_tag: str):
     st.header("🔥 Cincin Api (Ring of Fire) - Perbandingan 2025 vs 2026")
-    st.caption("Deteksi pergeseran pusat stres vegetasi spasial berbasis Z-Score NDRE untuk Blok yang sama.")
+    st.caption("Deteksi pergeseran pusat stres vegetasi berbasis Z-Score NDRE (Grid Spasial murni).")
 
     blok_rows = data.get("blok_summary", [])
     if not blok_rows:
         st.info("Data ringkasan blok tidak tersedia. Harap pastikan koneksi database baik.")
         return
 
-    # Cari blok yang memiliki data histori (2025) untuk perbandingan
+    # Cari blok yang memiliki data histori (2025)
     valid_bloks = [b for b in blok_rows if b.get('pohon_lengkap', 0) > 0]
     if not valid_bloks:
         st.warning("⚠️ Tidak ada blok dengan histori NDRE 2025 di dataset ini untuk dianalisis.")
@@ -183,7 +180,7 @@ def render_cincin_api_tab(data: dict, selected_dataset_tag: str):
         
     st.markdown("---")
 
-    with st.spinner(f"🔥 Menyusun perbandingan Spasial {sel_div} - {sel_blok} ..."):
+    with st.spinner(f"🔥 Menyusun perbandingan Grid Spasial {sel_div} - {sel_blok} ..."):
         raw_rows, coord_rows = load_cincin_data(selected_dataset_tag, sel_div, sel_blok)
         if not raw_rows or not coord_rows:
             st.error("❌ Data observasi atau koordinat tidak ditemukan untuk blok ini.")
@@ -201,38 +198,41 @@ def render_cincin_api_tab(data: dict, selected_dataset_tag: str):
             st.error("❌ Semua record NDRE di blok ini kehilangan data 2025 atau 2026 yang valid.")
             return
         
-        # Merge via n_baris + n_pokok
+        # Merge via n_baris + n_pokok (Ini menjamin Grid XY)
         df_coord["n_baris"] = pd.to_numeric(df_coord["n_baris"], errors='coerce')
         df_coord["n_pokok"] = pd.to_numeric(df_coord["n_pokok"], errors='coerce')
         df_ndre["n_baris"] = pd.to_numeric(df_ndre["n_baris"], errors='coerce')
         df_ndre["n_pokok"] = pd.to_numeric(df_ndre["n_pokok"], errors='coerce')
         
         df = pd.merge(df_ndre, df_coord, on=["n_baris", "n_pokok"], how="inner")
-        df = df.dropna(subset=["latitude", "longitude"])
+        df = df.dropna(subset=["n_baris", "n_pokok"])
         
         if df.empty:
-            st.error("❌ Gagal menyatukan nilai NDRE dengan Koordinat GIS. Periksa anomali ID Pohon.")
+            st.error("❌ Gagal menyatukan nilai NDRE dengan Grid. Periksa anomali ID Pohon.")
             return
             
-        # Hitung Z-Score + warna untuk masing-masing tahun
+        # Hitung Z-Score murni untuk Plotly
         df = calc_z_score_and_map(df, "val_2025", "25")
         df = calc_z_score_and_map(df, "val_2026", "26")
         
-        # UI Kiri dan Kanan
         col_map1, col_map2 = st.columns(2)
         
         with col_map1:
             st.markdown(f"<h5 style='text-align: center;'>Penerbangan 2025</h5>", unsafe_allow_html=True)
             st.markdown(get_stats_html(df, "25"), unsafe_allow_html=True)
-            map_25 = create_folium_map(df, "val_2025", "25", "2025")
-            st_folium(map_25, height=550, use_container_width=True, key="map25", returned_objects=[])
+            
+            # Rentangkan di Plotly Scatter Cartesian
+            fig_25 = create_plotly_grid_map(df, "val_2025", "25", "2025")
+            st.plotly_chart(fig_25, use_container_width=True, key="fig25", config={'scrollZoom': True})
             
         with col_map2:
             st.markdown(f"<h5 style='text-align: center;'>Penerbangan 2026</h5>", unsafe_allow_html=True)
             st.markdown(get_stats_html(df, "26"), unsafe_allow_html=True)
-            map_26 = create_folium_map(df, "val_2026", "26", "2026")
-            st_folium(map_26, height=550, use_container_width=True, key="map26", returned_objects=[])
+            
+            fig_26 = create_plotly_grid_map(df, "val_2026", "26", "2026")
+            st.plotly_chart(fig_26, use_container_width=True, key="fig26", config={'scrollZoom': True})
         
         st.markdown("<br>", unsafe_allow_html=True)
         st.caption(f"**Insight:** Menampilkan pergerakan Cincin Api antar tahun di blok {sel_div} - {sel_blok} ({len(df):,} pohon terdeteksi). "
-                   "Kategori dihitung berbasis *Z-Score* dari NDRE.")
+                   "Peta di atas adalah **Grid Spasial Relatif (Nomor Pokok x Nomor Baris)**, memastikan susunan pohon tampak lurus sempurna secara horizontal tanpa distorsi lekukan GPS. "
+                   "Gunakan Scroll/Sentuh untuk Zoom dan Geser formasi.")
