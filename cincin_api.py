@@ -2,8 +2,23 @@ import pandas as pd
 import numpy as np
 import streamlit as st
 import plotly.graph_objects as go
+import re
 
 from supabase_helper import get_supabase_client, fetch_comparison_sample, fetch_koordinat_blok
+
+def format_blok_display(blok):
+    match = re.match(r'^([A-Z])(\d+)([A-Z]?)$', str(blok))
+    if match:
+        charPart = match.group(1)
+        numPart = int(match.group(2))
+        suffixPart = match.group(3)
+        if not suffixPart:
+            if charPart == 'F' and numPart == 8:
+                suffixPart = 'B'
+            else:
+                suffixPart = 'A'
+        return f"{charPart}{numPart:03d}{suffixPart}"
+    return blok
 
 def safe_float(v):
     try:
@@ -202,14 +217,16 @@ def render_cincin_api_tab(data: dict, selected_dataset_tag: str):
         sel_div = st.selectbox("Pilih Divisi", options=divisi_opts, key="cincin_div")
     with col_blk:
         blok_opts = sorted([b for d, b in div_bloks if d == sel_div])
-        sel_blok = st.selectbox("Pilih Blok", options=blok_opts, key="cincin_blok")
+        sel_blok = st.selectbox("Pilih Blok", options=blok_opts, key="cincin_blok", format_func=format_blok_display)
 
     if not sel_div or not sel_blok:
         return
         
     st.markdown("---")
 
-    with st.spinner(f"🔥 Menyusun perbandingan Spasial Heksagonal {sel_div} - {sel_blok} ..."):
+    disp_blok = format_blok_display(sel_blok)
+
+    with st.spinner(f"🔥 Menyusun perbandingan Spasial Heksagonal {sel_div} - {disp_blok} ..."):
         raw_rows, coord_rows = load_cincin_data(selected_dataset_tag, sel_div, sel_blok)
         if not raw_rows or not coord_rows:
             st.error("❌ Data observasi atau koordinat tidak ditemukan untuk blok ini.")
@@ -260,5 +277,5 @@ def render_cincin_api_tab(data: dict, selected_dataset_tag: str):
             st.plotly_chart(fig_26, use_container_width=True, key="fig26", config={'scrollZoom': True})
         
         st.markdown("<br>", unsafe_allow_html=True)
-        st.caption(f"**Insight:** Menampilkan Cincin Api di blok {sel_div} - {sel_blok} ({len(df):,} pohon terdeteksi). "
+        st.caption(f"**Insight:** Menampilkan Cincin Api di blok {sel_div} - {disp_blok} ({len(df):,} pohon terdeteksi). "
                    "Peta di atas adalah **Grid Spasial Heksagonal (Mata Lima)**, mengasumsikan offset +0.5 pada baris ganjil/genap agar susunan pohon saling mengunci secara alami.")
