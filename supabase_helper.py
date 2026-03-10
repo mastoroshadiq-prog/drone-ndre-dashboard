@@ -223,3 +223,31 @@ def fetch_comparison_sample(
         max_rows=max_rows,
     )
 
+
+def fetch_koordinat_blok(
+    client: Client,
+    dataset_tags: Optional[List[str]] = None,
+    divisi: Optional[str] = None,
+    blok: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Ambil data latitude/longitude dari kebun_pokok_koordinat per blok."""
+    filters = []
+    if dataset_tags:
+        filters.append({"op": "in", "column": "dataset_tag", "value": dataset_tags})
+    if divisi and divisi != "SEMUA":
+        filters.append({"op": "eq", "column": "divisi", "value": divisi})
+    if blok and blok != "SEMUA":
+        filters.append({"op": "eq", "column": "blok", "value": blok})
+        
+    try:
+        return fetch_paginated(
+            client,
+            "kebun_pokok_koordinat",
+            "divisi,blok,n_baris,n_pokok,latitude,longitude",
+            filters=filters,
+            page_size=5000,
+            max_rows=50000,
+        )
+    except Exception:
+        return []
+

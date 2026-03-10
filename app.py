@@ -7,9 +7,12 @@ from collections import Counter, defaultdict
 from typing import Dict, List, Optional
 
 import pandas as pd
+import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+import folium
+from streamlit_folium import st_folium
 
 from supabase_helper import (
     fetch_anomaly_koordinat,
@@ -17,8 +20,11 @@ from supabase_helper import (
     fetch_comparison_sample,
     fetch_divisi_summary,
     fetch_transition_matrix,
+    fetch_koordinat_blok,
     get_supabase_client,
 )
+from cincin_api import render_cincin_api_tab
+
 
 # ══════════════════════════════════════════════════════════════════
 # KONSTANTA
@@ -1414,11 +1420,12 @@ def main():
             f"Filter: {divisi_filter} | Dataset: {', '.join(tags_tuple)}"
         )
 
-    # Tabs — 3 tab utama
-    tab1, tab2, tab3 = st.tabs([
+    # Tabs — 4 tab utama
+    tab1, tab2, tab3, tab4 = st.tabs([
         "📅 Tren 2025 vs 2026",
         "🎯 Tren & Hotspot",
         "⚠️ Anomali Data",
+        "🔥 Analisis Cincin Api",
     ])
 
     with tab1:
@@ -1427,6 +1434,8 @@ def main():
         render_trend_hotspot(data)
     with tab3:
         render_anomaly_section(data)
+    with tab4:
+        render_cincin_api_tab(data, selected_dataset_tag)
 
 
 if __name__ == "__main__":
