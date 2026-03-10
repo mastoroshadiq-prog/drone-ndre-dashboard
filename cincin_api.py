@@ -64,35 +64,60 @@ def get_stats_html(df, suffix):
     """
     return html
 
-def calc_z_score_and_map(df, val_col, suffix):
-    mean_val = df[val_col].mean()
-    std_val = df[val_col].std()
-    if pd.isna(std_val) or std_val == 0:
-        std_val = 1e-6
+def calc_cincin_api(df, val_col, suffix, threshold=0.15, min_sick_neighbors=2):
+    # Hitung Ranking Percentile
+    # NDRE Rendah = Rentan (Sakit). Kita rank persentil berurut ke atas.
+    # Nilai persentil <= 0.15 berarti termasuk 15% terburuk di blok ini.
+    df[f"pct_{suffix}"] = df[val_col].rank(pct=True, method='dense')
     
-    # Gunakan Pure Z-Score asli (tanpa smoothing) karena plot scatter
-    # Grid Lurus (n_baris vs n_pokok) secara alami akan memperlihatkan
-    # pola spasial tanpa noise lat/lon.
-    raw_z_scores = (df[val_col] - mean_val) / std_val
-    df[f"z_score_{suffix}"] = raw_z_scores
+    # Precompute map is_suspect
+    is_suspect_map = {}
+    for _, row in df.iterrows():
+        b, p = int(row["n_baris"]), int(row["n_pokok"])
+        is_suspect_map[(b, p)] = row[f"pct_{suffix}"] <= threshold
+
+    def get_hex_neighbors(b, p):
+        # Implementasi heksagonal odd-row offset sesuai mata lima
+        if b % 2 == 0:
+            offsets = [(0, -1), (0, 1), (-1, -1), (-1, 0), (1, -1), (1, 0)]
+        else:
+            offsets = [(0, -1), (0, 1), (-1, 0), (-1, 1), (1, 0), (1, 1)]
+        return [(b + db, p + dp) for db, dp in offsets]
+
+    # Fase 1: Klasifikasi Core & Suspect
+    kategori = []
+    merah_coords = set()
     
-    # 2. Thresholding pure Z-Score
-    m_core = raw_z_scores <= -1.5
-    m_ring1 = (raw_z_scores > -1.5) & (raw_z_scores <= -1.0)
-    m_ring2 = (raw_z_scores > -1.0) & (raw_z_scores <= -0.5)
+    for _, row in df.iterrows():
+        b, p = int(row["n_baris"]), int(row["n_pokok"])
+        if is_suspect_map[(b, p)]:
+            neighbors = get_hex_neighbors(b, p)
+            sick_count = sum(1 for nb in neighbors if is_suspect_map.get(nb, False))
+            if sick_count >= min_sick_neighbors:
+                kategori.append("🔴 MERAH (INTI)")
+                merah_coords.add((b, p))
+            else:
+                kategori.append("🟡 KUNING (SUSPECT)")
+        else:
+            kategori.append("🟢 HIJAU (SEHAT)")
+            
+    df[f"kategori_{suffix}"] = kategori
     
-    df[f"kategori_{suffix}"] = "🟢 HIJAU (SEHAT)"
-    df.loc[m_ring2, f"kategori_{suffix}"] = "🟡 KUNING (SUSPECT)"
-    df.loc[m_ring1, f"kategori_{suffix}"] = "🟠 ORANYE (CINCIN)"
-    df.loc[m_core, f"kategori_{suffix}"] = "🔴 MERAH (INTI)"
-    
+    # Fase 2: Expand Ring (Oranye)
+    # Ubah yang TETANGGA langsung dari MERAH (tapi bukan MERAH) menjadi ORANYE
+    for _, row in df.iterrows():
+        b, p = int(row["n_baris"]), int(row["n_pokok"])
+        if df.at[row.name, f"kategori_{suffix}"] != "🔴 MERAH (INTI)":
+            neighbors = get_hex_neighbors(b, p)
+            if any(nb in merah_coords for nb in neighbors):
+                df.at[row.name, f"kategori_{suffix}"] = "🟠 ORANYE (CINCIN)"
+
     return df
 
-def create_plotly_grid_map(df, val_col, suffix, year):
-    """Memutar koordinat murni dari nomor baris dan pokok agar lurus horizontal sempurna"""
+def create_plotly_hex_map(df, val_col, suffix, year):
+    """Plotting spasial baris-pokok dengan layout mata lima (hex grid shift)"""
     fig = go.Figure()
     
-    # (Nama Kategori, Fill Color, Line Color, Radius Size)
     categories = [
         ("🟢 HIJAU (SEHAT)", "#eafae3", "#82e0aa", 8),
         ("🟡 KUNING (SUSPECT)", "#f1c40f", "#d68910", 11),
@@ -100,31 +125,35 @@ def create_plotly_grid_map(df, val_col, suffix, year):
         ("🔴 MERAH (INTI)", "#c0392b", "#7b241c", 18)
     ]
     
+    # Terapkan offset heksagonal agar visualnya persis Mata Lima
+    x_positions = df["n_pokok"] + (df["n_baris"] % 2) * 0.5
+    
     for cat_name, fill_col, stroke_col, size in categories:
-        d_sub = df[df[f"kategori_{suffix}"] == cat_name]
+        m_cat = df[f"kategori_{suffix}"] == cat_name
+        d_sub = df[m_cat]
+        x_sub = x_positions[m_cat]
+        
         if d_sub.empty:
             continue
             
-        # customdata array to feed tooltip natively (much faster than looping HTML)
-        customdata = d_sub[["n_baris", "n_pokok", val_col, f"z_score_{suffix}"]].values
+        customdata = d_sub[["n_baris", "n_pokok", val_col, f"pct_{suffix}"]].values
         
-        # Tooltip template
-        title = cat_name.split(' ')[1]  # ex: MERAH, ORANYE
+        title = cat_name.split(' ')[1]
         hovertemplate = (
             f"<b>{title}</b><br><br>" + 
             "Row: %{customdata[0]:.0f} | Tree: %{customdata[1]:.0f}<br>" +
             f"NDRE {year}: %{{customdata[2]:.3f}}<br>" +
-            "Z-Score: %{customdata[3]:.2f}<extra></extra>"
+            "Percentile: %{customdata[3]:.1%}<extra></extra>"
         )
 
         fig.add_trace(go.Scatter(
-            x=d_sub["n_pokok"],
+            x=x_sub,
             y=d_sub["n_baris"],
             mode="markers",
             marker=dict(
                 size=size,
                 color=fill_col,
-                line=dict(color=stroke_col, width=1.8),
+                line=dict(color=stroke_col, width=1.5),
                 opacity=0.9
             ),
             name=cat_name,
@@ -139,20 +168,20 @@ def create_plotly_grid_map(df, val_col, suffix, year):
         yaxis=dict(showgrid=False, zeroline=False, title="", autorange="reversed", showticklabels=False),
         margin=dict(l=0, r=0, t=10, b=0),
         showlegend=False,
-        yaxis_scaleanchor="x",  # Mengunci grid agar bulat bundar / proporsional
+        yaxis_scaleanchor="x",  # Keep aspect ratio round naturally
         dragmode="pan",
-        hoverlabel=dict(
-            bgcolor="white",
-            font_size=13,
-            font_family="Arial"
-        )
+        hoverlabel=dict(bgcolor="white", font_size=13, font_family="Arial")
     )
     
     return fig
 
 def render_cincin_api_tab(data: dict, selected_dataset_tag: str):
     st.header("🔥 Cincin Api (Ring of Fire) - Perbandingan 2025 vs 2026")
-    st.caption("Deteksi pergeseran pusat stres vegetasi berbasis Z-Score NDRE (Grid Spasial murni).")
+    st.caption("Klasifikasi berbasis aturan spasial heksagonal (mata lima) dan ranking persentil blok.")
+    
+    col_t1, col_t2 = st.columns([1, 4])
+    with col_t1:
+        threshold_val = st.slider("Threshold Persentil Sakit", min_value=0.05, max_value=0.30, value=0.15, step=0.01, help="Pohon dengan NDRE pada % terendah dianggap berpotensi MERAH/KUNING.")
 
     blok_rows = data.get("blok_summary", [])
     if not blok_rows:
@@ -180,7 +209,7 @@ def render_cincin_api_tab(data: dict, selected_dataset_tag: str):
         
     st.markdown("---")
 
-    with st.spinner(f"🔥 Menyusun perbandingan Grid Spasial {sel_div} - {sel_blok} ..."):
+    with st.spinner(f"🔥 Menyusun perbandingan Spasial Heksagonal {sel_div} - {sel_blok} ..."):
         raw_rows, coord_rows = load_cincin_data(selected_dataset_tag, sel_div, sel_blok)
         if not raw_rows or not coord_rows:
             st.error("❌ Data observasi atau koordinat tidak ditemukan untuk blok ini.")
@@ -198,7 +227,6 @@ def render_cincin_api_tab(data: dict, selected_dataset_tag: str):
             st.error("❌ Semua record NDRE di blok ini kehilangan data 2025 atau 2026 yang valid.")
             return
         
-        # Merge via n_baris + n_pokok (Ini menjamin Grid XY)
         df_coord["n_baris"] = pd.to_numeric(df_coord["n_baris"], errors='coerce')
         df_coord["n_pokok"] = pd.to_numeric(df_coord["n_pokok"], errors='coerce')
         df_ndre["n_baris"] = pd.to_numeric(df_ndre["n_baris"], errors='coerce')
@@ -211,9 +239,9 @@ def render_cincin_api_tab(data: dict, selected_dataset_tag: str):
             st.error("❌ Gagal menyatukan nilai NDRE dengan Grid. Periksa anomali ID Pohon.")
             return
             
-        # Hitung Z-Score murni untuk Plotly
-        df = calc_z_score_and_map(df, "val_2025", "25")
-        df = calc_z_score_and_map(df, "val_2026", "26")
+        # Eksekusi Algoritma Inti Cincin Api Berbasis Mata Lima
+        df = calc_cincin_api(df, "val_2025", "25", threshold=threshold_val)
+        df = calc_cincin_api(df, "val_2026", "26", threshold=threshold_val)
         
         col_map1, col_map2 = st.columns(2)
         
@@ -221,18 +249,16 @@ def render_cincin_api_tab(data: dict, selected_dataset_tag: str):
             st.markdown(f"<h5 style='text-align: center;'>Penerbangan 2025</h5>", unsafe_allow_html=True)
             st.markdown(get_stats_html(df, "25"), unsafe_allow_html=True)
             
-            # Rentangkan di Plotly Scatter Cartesian
-            fig_25 = create_plotly_grid_map(df, "val_2025", "25", "2025")
+            fig_25 = create_plotly_hex_map(df, "val_2025", "25", "2025")
             st.plotly_chart(fig_25, use_container_width=True, key="fig25", config={'scrollZoom': True})
             
         with col_map2:
             st.markdown(f"<h5 style='text-align: center;'>Penerbangan 2026</h5>", unsafe_allow_html=True)
             st.markdown(get_stats_html(df, "26"), unsafe_allow_html=True)
             
-            fig_26 = create_plotly_grid_map(df, "val_2026", "26", "2026")
+            fig_26 = create_plotly_hex_map(df, "val_2026", "26", "2026")
             st.plotly_chart(fig_26, use_container_width=True, key="fig26", config={'scrollZoom': True})
         
         st.markdown("<br>", unsafe_allow_html=True)
-        st.caption(f"**Insight:** Menampilkan pergerakan Cincin Api antar tahun di blok {sel_div} - {sel_blok} ({len(df):,} pohon terdeteksi). "
-                   "Peta di atas adalah **Grid Spasial Relatif (Nomor Pokok x Nomor Baris)**, memastikan susunan pohon tampak lurus sempurna secara horizontal tanpa distorsi lekukan GPS. "
-                   "Gunakan Scroll/Sentuh untuk Zoom dan Geser formasi.")
+        st.caption(f"**Insight:** Menampilkan Cincin Api di blok {sel_div} - {sel_blok} ({len(df):,} pohon terdeteksi). "
+                   "Peta di atas adalah **Grid Spasial Heksagonal (Mata Lima)**, mengasumsikan offset +0.5 pada baris ganjil/genap agar susunan pohon saling mengunci secara alami.")
