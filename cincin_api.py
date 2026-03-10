@@ -154,9 +154,9 @@ def create_plotly_hex_map(df, val_col, suffix, year):
     
     categories = [
         ("🟢 HIJAU (SEHAT)", "#eafae3", "#82e0aa", 8),
-        ("🟡 KUNING (SUSPECT)", "#f1c40f", "#d68910", 11),
-        ("🟠 ORANYE (CINCIN)", "#e67e22", "#ba4a00", 14),
-        ("🔴 MERAH (INTI)", "#c0392b", "#7b241c", 18)
+        ("🟡 KUNING (SUSPECT)", "#f1c40f", "#d68910", 10),
+        ("🟠 ORANYE (CINCIN)", "#e67e22", "#ba4a00", 12),
+        ("🔴 MERAH (INTI)", "#c0392b", "#7b241c", 14)
     ]
     
     # Terapkan offset heksagonal agar visualnya persis Mata Lima
