@@ -79,25 +79,44 @@ def get_stats_html(df, suffix):
     """
     return html
 
-def calc_cincin_api(df, val_col, suffix, threshold=0.15, min_sick_neighbors=2):
-    # Hitung Ranking Percentile
+def calc_cincin_api(df, val_col, suffix, threshold=0.15, min_sick_neighbors=3):
+    # Optimasi pencarian tetangga Heksagonal Mata Lima
+    def get_hex_neighbors(b, p):
+        if b % 2 == 0:
+            offsets = [(0, -1), (0, 1), (-1, -1), (-1, 0), (1, -1), (1, 0)]
+        else:
+            offsets = [(0, -1), (0, 1), (-1, 0), (-1, 1), (1, 0), (1, 1)]
+        return [(b + db, p + dp) for db, dp in offsets]
+
+    # Pre-map nilai NDRE asli untuk Smoothing
+    val_map = {}
+    for _, row in df.iterrows():
+        b, p = int(row["n_baris"]), int(row["n_pokok"])
+        val_map[(b, p)] = row[val_col]
+
+    # 1. Spatial Focal Smoothing (Rata-rata Heksagonal)
+    # Menghaluskan noise individual pohon (drone noise, shadow, dll)
+    # sehingga cluster penyakit yang sebenarnya (kumpulan) terbentuk solid.
+    smoothed_vals = []
+    for _, row in df.iterrows():
+        b, p = int(row["n_baris"]), int(row["n_pokok"])
+        nbs = get_hex_neighbors(b, p)
+        # Ambil nilai tetangga yang valid + nilai diri sendiri
+        valid_vals = [val_map[nb] for nb in nbs if nb in val_map]
+        valid_vals.append(val_map[(b, p)])
+        smoothed_vals.append(np.mean(valid_vals))
+        
+    df[f"smoothed_{suffix}"] = smoothed_vals
+
+    # 2. Hitung Ranking Percentile pada Nilai yang Telah Dihaluskan
     # NDRE Rendah = Rentan (Sakit). Kita rank persentil berurut ke atas.
-    # Nilai persentil <= 0.15 berarti termasuk 15% terburuk di blok ini.
-    df[f"pct_{suffix}"] = df[val_col].rank(pct=True, method='dense')
+    df[f"pct_{suffix}"] = df[f"smoothed_{suffix}"].rank(pct=True, method='dense')
     
     # Precompute map is_suspect
     is_suspect_map = {}
     for _, row in df.iterrows():
         b, p = int(row["n_baris"]), int(row["n_pokok"])
         is_suspect_map[(b, p)] = row[f"pct_{suffix}"] <= threshold
-
-    def get_hex_neighbors(b, p):
-        # Implementasi heksagonal odd-row offset sesuai mata lima
-        if b % 2 == 0:
-            offsets = [(0, -1), (0, 1), (-1, -1), (-1, 0), (1, -1), (1, 0)]
-        else:
-            offsets = [(0, -1), (0, 1), (-1, 0), (-1, 1), (1, 0), (1, 1)]
-        return [(b + db, p + dp) for db, dp in offsets]
 
     # Fase 1: Klasifikasi Core & Suspect
     kategori = []
