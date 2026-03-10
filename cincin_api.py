@@ -69,20 +69,14 @@ def get_stats_html(df, suffix):
     """
     return html
 
-def calc_z_score_and_map(df, val_col, suffix, ring1_radius=10.0, ring2_radius=20.0):
+def calc_z_score_and_map(df, val_col, suffix, smoothing_radius=15.0):
     mean_val = df[val_col].mean()
     std_val = df[val_col].std()
     if pd.isna(std_val) or std_val == 0:
         std_val = 1e-6
     
-    z_scores = (df[val_col] - mean_val) / std_val
-    df[f"z_score_{suffix}"] = z_scores
-    
-    # Kategori default: Hijau (Sehat)
-    df[f"kategori_{suffix}"] = "🟢 HIJAU (SEHAT)"
-    df[f"warna_{suffix}"] = "#d1f2eb" # Hijau transparan
-    df[f"radius_{suffix}"] = 3
-    df[f"fill_opacity_{suffix}"] = 0.5
+    raw_z_scores = (df[val_col] - mean_val) / std_val
+    df[f"raw_z_score_{suffix}"] = raw_z_scores
     
     # Aproksimasi derajat Lat/Lon ke Meter (Ekuator)
     if "x_m" not in df.columns:
@@ -91,30 +85,37 @@ def calc_z_score_and_map(df, val_col, suffix, ring1_radius=10.0, ring2_radius=20
         df["x_m"] = df["longitude"] * LON_TO_M
         df["y_m"] = df["latitude"] * LAT_TO_M
     
-    # 1. Deteksi Core Ekstrem (Z <= -1.5)
-    m_core = z_scores <= -1.5
+    # 1. Spatial Smoothing (Focal Mean) untuk menciptakan pola kontur/cincin alami
+    all_points = df[["x_m", "y_m"]].values
+    kd_tree = KDTree(all_points)
+    
+    # Cari semua tetangga dalam radius tertentu (misal 15 meter)
+    neighbors_list = kd_tree.query_ball_point(all_points, r=smoothing_radius)
+    
+    smoothed_z = np.zeros(len(df))
+    for i, neighbors in enumerate(neighbors_list):
+        # Hitung rata-rata Z-Score dari titik ini & pohon di sekelilingnya
+        smoothed_z[i] = raw_z_scores.iloc[neighbors].mean()
+        
+    df[f"z_score_{suffix}"] = smoothed_z
+    
+    # Kategori default: Hijau (Sehat)
+    df[f"kategori_{suffix}"] = "🟢 HIJAU (SEHAT)"
+    df[f"warna_{suffix}"] = "#d1f2eb" # Hijau transparan
+    df[f"radius_{suffix}"] = 3
+    df[f"fill_opacity_{suffix}"] = 0.5
+    
+    # 2. Thresholding berdasarkan SMOOTHED Z-Score (Gradien Cincin)
+    m_core = smoothed_z <= -1.0
+    m_ring1 = (smoothed_z > -1.0) & (smoothed_z <= -0.5)
+    m_ring2 = (smoothed_z > -0.5) & (smoothed_z <= -0.2)
+    
     df.loc[m_core, [f"kategori_{suffix}", f"warna_{suffix}", f"radius_{suffix}", f"fill_opacity_{suffix}"]] = [
         "🔴 MERAH (INTI)", "#c0392b", 6, 0.9]
-    
-    core_points = df[m_core][["x_m", "y_m"]].values
-    
-    # 2. Deteksi Ketetanggaan (Ring 1 & Ring 2)
-    if len(core_points) > 0:
-        core_tree = KDTree(core_points)
-        all_points = df[["x_m", "y_m"]].values
-        
-        # Cari jarak titik ini ke Core terdekat
-        distances, _ = core_tree.query(all_points, k=1)
-        
-        # Syarat "tertular" (spatial): berada dalam radius X meter DARI core, DAN punya kerentanan (Z <= 0).
-        # Jika sangat sehat (Z > 0), tidak dihitung tertular walau dekat.
-        m_ring1 = (distances <= ring1_radius) & (~m_core) & (z_scores <= -0.2)
-        m_ring2 = (distances <= ring2_radius) & (~m_core) & (~m_ring1) & (z_scores <= 0.0)
-        
-        df.loc[m_ring1, [f"kategori_{suffix}", f"warna_{suffix}", f"radius_{suffix}", f"fill_opacity_{suffix}"]] = [
-            "🟠 ORANYE (CINCIN)", "#e67e22", 5, 0.8]
-        df.loc[m_ring2, [f"kategori_{suffix}", f"warna_{suffix}", f"radius_{suffix}", f"fill_opacity_{suffix}"]] = [
-            "🟡 KUNING (SUSPECT)", "#f1c40f", 5, 0.7]
+    df.loc[m_ring1, [f"kategori_{suffix}", f"warna_{suffix}", f"radius_{suffix}", f"fill_opacity_{suffix}"]] = [
+        "🟠 ORANYE (CINCIN)", "#e67e22", 5, 0.8]
+    df.loc[m_ring2, [f"kategori_{suffix}", f"warna_{suffix}", f"radius_{suffix}", f"fill_opacity_{suffix}"]] = [
+        "🟡 KUNING (SUSPECT)", "#f1c40f", 5, 0.7]
     
     return df
 
