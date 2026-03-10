@@ -204,7 +204,7 @@ def create_plotly_hex_map(df, val_col, suffix, year):
         showlegend=False,
         yaxis_scaleanchor="x",  # Keep aspect ratio round naturally
         dragmode="pan",
-        hoverlabel=dict(bgcolor="white", font_size=13, font_family="Arial")
+        hoverlabel=dict(bgcolor="white", font_size=13, font_family="Arial", font_color="#1e212b")
     )
     
     return fig
