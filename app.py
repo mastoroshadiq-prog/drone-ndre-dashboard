@@ -23,7 +23,7 @@ from supabase_helper import (
     fetch_koordinat_blok,
     get_supabase_client,
 )
-from cincin_api import render_cincin_api_tab
+from cincin_api import render_cincin_api_tab, format_blok_display
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -901,6 +901,9 @@ def render_trend_hotspot(data: Dict):
         return
 
     df_blok = pd.DataFrame(blok_rows)
+    if "blok" in df_blok.columns:
+        df_blok["blok"] = df_blok["blok"].apply(format_blok_display)
+        
     num_cols = ["count_improved", "count_degraded", "count_stable", "total_pohon",
                 "pohon_ada_2025", "pohon_lengkap",
                 "klass26_sangat_berat", "klass26_stres_berat",
@@ -1110,6 +1113,9 @@ def render_anomaly_section(data: Dict):
         return
 
     df_a = pd.DataFrame(anomaly)
+    if "blok" in df_a.columns:
+        df_a["blok"] = df_a["blok"].apply(format_blok_display)
+        
     total_anom = len(df_a)
 
     # ── Ringkasan Metrik ──────────────────────────────────────────
@@ -1201,6 +1207,9 @@ def render_blok_drilldown(data: Dict):
         return
 
     df = pd.DataFrame(blok_rows)
+    if "blok" in df.columns:
+        df["blok"] = df["blok"].apply(format_blok_display)
+        
     num_cols = ["total_pohon", "count_improved", "count_degraded", "count_stable",
                 "count_no_delta", "klass26_sangat_berat", "klass26_stres_berat",
                 "klass26_sedang", "klass26_ringan", "orphan_no_link",
