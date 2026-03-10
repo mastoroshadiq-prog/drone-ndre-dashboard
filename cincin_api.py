@@ -39,6 +39,34 @@ def load_cincin_data(selected_dataset_tag: str, sel_div: str, sel_blok: str):
     
     return raw_rows, coord_rows
 
+def get_stats_html(df, suffix):
+    core = (df[f"z_score_{suffix}"] <= -1.5).sum()
+    ring1 = ((df[f"z_score_{suffix}"] > -1.5) & (df[f"z_score_{suffix}"] <= -1.0)).sum()
+    ring2 = ((df[f"z_score_{suffix}"] > -1.0) & (df[f"z_score_{suffix}"] <= -0.5)).sum()
+    sehat = (df[f"z_score_{suffix}"] > -0.5).sum()
+
+    html = f"""
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 15px;">
+        <div style="background-color: #1e212b; padding: 12px; border-radius: 8px; border-left: 5px solid #c0392b;">
+            <div style="color: #c0392b; font-size: 0.75rem; font-weight: 800; margin-bottom: 4px; letter-spacing: 0.5px;">🔴 MERAH (INTI)</div>
+            <div style="color: white; font-size: 1.4rem; font-weight: 700; line-height: 1;">{core:,} <span style="font-size: 0.8rem; font-weight: 400; color: #8e9ba9;">pohon</span></div>
+        </div>
+        <div style="background-color: #1e212b; padding: 12px; border-radius: 8px; border-left: 5px solid #e67e22;">
+            <div style="color: #e67e22; font-size: 0.75rem; font-weight: 800; margin-bottom: 4px; letter-spacing: 0.5px;">🟠 ORANYE (CINCIN)</div>
+            <div style="color: white; font-size: 1.4rem; font-weight: 700; line-height: 1;">{ring1:,} <span style="font-size: 0.8rem; font-weight: 400; color: #8e9ba9;">pohon</span></div>
+        </div>
+        <div style="background-color: #1e212b; padding: 12px; border-radius: 8px; border-left: 5px solid #f1c40f;">
+            <div style="color: #f1c40f; font-size: 0.75rem; font-weight: 800; margin-bottom: 4px; letter-spacing: 0.5px;">🟡 KUNING (SUSPECT)</div>
+            <div style="color: white; font-size: 1.4rem; font-weight: 700; line-height: 1;">{ring2:,} <span style="font-size: 0.8rem; font-weight: 400; color: #8e9ba9;">pohon</span></div>
+        </div>
+        <div style="background-color: #1e212b; padding: 12px; border-radius: 8px; border-left: 5px solid #2ecc71;">
+            <div style="color: #2ecc71; font-size: 0.75rem; font-weight: 800; margin-bottom: 4px; letter-spacing: 0.5px;">🟢 HIJAU (SEHAT)</div>
+            <div style="color: white; font-size: 1.4rem; font-weight: 700; line-height: 1;">{sehat:,} <span style="font-size: 0.8rem; font-weight: 400; color: #8e9ba9;">pohon</span></div>
+        </div>
+    </div>
+    """
+    return html
+
 def calc_z_score_and_map(df, val_col, suffix):
     mean_val = df[val_col].mean()
     std_val = df[val_col].std()
@@ -162,44 +190,21 @@ def render_cincin_api_tab(data: dict, selected_dataset_tag: str):
         df = calc_z_score_and_map(df, "val_2025", "25")
         df = calc_z_score_and_map(df, "val_2026", "26")
         
-        # Stats 2025
-        count_core_25 = (df["z_score_25"] <= -1.5).sum()
-        count_r1_25 = ((df["z_score_25"] > -1.5) & (df["z_score_25"] <= -1.0)).sum()
-        
-        # Stats 2026
-        count_core_26 = (df["z_score_26"] <= -1.5).sum()
-        count_r1_26 = ((df["z_score_26"] > -1.5) & (df["z_score_26"] <= -1.0)).sum()
-        
         # UI Kiri dan Kanan
         col_map1, col_map2 = st.columns(2)
         
         with col_map1:
             st.markdown(f"<h5 style='text-align: center;'>Penerbangan 2025</h5>", unsafe_allow_html=True)
+            st.markdown(get_stats_html(df, "25"), unsafe_allow_html=True)
             map_25 = create_folium_map(df, "val_2025", "25", "2025")
             st_folium(map_25, height=550, use_container_width=True, key="map25", returned_objects=[])
             
-            st.markdown(
-                f"<div style='text-align:center; font-size: 0.9em;'>"
-                f"<b>Episentrum Stress (Z ≤ -1.5):</b> <span style='color:#c0392b;'>{count_core_25} pohon</span><br>"
-                f"<b>Ring 1 (-1.5 < Z ≤ -1.0):</b> <span style='color:#e67e22;'>{count_r1_25} pohon</span>"
-                f"</div>", 
-                unsafe_allow_html=True
-            )
-            
         with col_map2:
             st.markdown(f"<h5 style='text-align: center;'>Penerbangan 2026</h5>", unsafe_allow_html=True)
+            st.markdown(get_stats_html(df, "26"), unsafe_allow_html=True)
             map_26 = create_folium_map(df, "val_2026", "26", "2026")
             st_folium(map_26, height=550, use_container_width=True, key="map26", returned_objects=[])
-
-            st.markdown(
-                f"<div style='text-align:center; font-size: 0.9em;'>"
-                f"<b>Episentrum Stress (Z ≤ -1.5):</b> <span style='color:#c0392b;'>{count_core_26} pohon</span><br>"
-                f"<b>Ring 1 (-1.5 < Z ≤ -1.0):</b> <span style='color:#e67e22;'>{count_r1_26} pohon</span>"
-                f"</div>", 
-                unsafe_allow_html=True
-            )
         
         st.markdown("<br>", unsafe_allow_html=True)
         st.caption(f"**Insight:** Menampilkan pergerakan Cincin Api antar tahun di blok {sel_div} - {sel_blok} ({len(df):,} pohon terdeteksi). "
-                   "Titik Merah (Core) dan Oranye (Ring 1) mengindikasikan pusat tekanan biologis tanaman yang ekstrem secara lokal (dibandingkan bloknya sendiri). "
-                   "Bandingkan antara peta Kiri dan Kanan untuk melihat apakah Cincin Api membesar, berpindah, atau mereda.")
+                   "Kategori dihitung berbasis *Z-Score* dari NDRE.")
