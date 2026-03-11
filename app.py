@@ -1400,6 +1400,30 @@ def render_top_ekstrim_tab(data: Dict):
     # Buat format Label Blok yang rapi
     df_rank["label_blok"] = df_rank.apply(lambda r: f"Blok {format_blok_display(r.get('blok', ''))} ({r.get('divisi', '')})", axis=1)
 
+    # Hitung populasi Kritis (Sangat Berat + Berat) dan Sehat (Sedang + Ringan)
+    df_rank["kritis_25"] = df_rank.get("klass25_sangat_berat", 0) + df_rank.get("klass25_stres_berat", 0)
+    df_rank["kritis_26"] = df_rank.get("klass26_sangat_berat", 0) + df_rank.get("klass26_stres_berat", 0)
+    df_rank["sehat_25"] = df_rank.get("klass25_ringan", 0) + df_rank.get("klass25_sedang", 0)
+    df_rank["sehat_26"] = df_rank.get("klass26_ringan", 0) + df_rank.get("klass26_sedang", 0)
+    
+    def get_bad_text(r):
+        k25 = int(r.get("kritis_25", 0))
+        k26 = int(r.get("kritis_26", 0))
+        pct = ((k26 - k25) / k25 * 100) if k25 > 0 else 0
+        count_deg = int(r.get("count_degraded", 0))
+        # Mengembalikan string perbandingan + jumlah pohon menurun
+        return f"Naik {pct:.1f}% ({k25}→{k26}) | +{count_deg} pohon"
+        
+    def get_good_text(r):
+        s25 = int(r.get("sehat_25", 0))
+        s26 = int(r.get("sehat_26", 0))
+        pct = ((s26 - s25) / s25 * 100) if s25 > 0 else 0
+        count_imp = int(r.get("count_improved", 0))
+        return f"Naik {pct:.1f}% ({s25}→{s26}) | +{count_imp} pohon"
+        
+    df_rank["teks_bad"] = df_rank.apply(get_bad_text, axis=1)
+    df_rank["teks_good"] = df_rank.apply(get_good_text, axis=1)
+
     col1, col2 = st.columns(2)
     
     with col1:
@@ -1409,7 +1433,7 @@ def render_top_ekstrim_tab(data: Dict):
             if not top_bad.empty:
                 fig_bad = px.bar(
                     top_bad, x="count_degraded", y="label_blok", orientation="h",
-                    text="count_degraded", color="count_degraded",
+                    text="teks_bad", color="count_degraded",
                     color_continuous_scale=[[0, "#f5b7b1"], [1, "#922b21"]],
                     labels={"count_degraded": "Jumlah Pohon Menurun", "label_blok": "Nama Blok"}
                 )
@@ -1433,7 +1457,7 @@ def render_top_ekstrim_tab(data: Dict):
             if not top_good.empty:
                 fig_good = px.bar(
                     top_good, x="count_improved", y="label_blok", orientation="h",
-                    text="count_improved", color="count_improved",
+                    text="teks_good", color="count_improved",
                     color_continuous_scale=[[0, "#abebc6"], [1, "#1d8348"]],
                     labels={"count_improved": "Jumlah Pohon Membaik", "label_blok": "Nama Blok"}
                 )
@@ -1449,6 +1473,8 @@ def render_top_ekstrim_tab(data: Dict):
                 st.plotly_chart(fig_good, use_container_width=True, key="top_10_good_chart")
             else:
                 st.write("Tidak ada peningkatan signifikan.")
+                
+    st.info("💡 **Catatan untuk Divisi AME IV:** Divisi AME IV hanya memiliki data observasi Drone untuk baseline Tahun 2026 dan belum memiliki riwayat/histori data 2025. Oleh karena itu, AME IV tidak dapat dievaluasi status 'Peningkatan' atau 'Penurunannya' dan tidak akan masuk ke dalam klansmen perbandingan ekstrim ini.")
                 
 
 # ══════════════════════════════════════════════════════════════════
