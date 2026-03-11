@@ -94,15 +94,14 @@ def get_stats_html(df, suffix):
 """
     return html
 
-def calc_cincin_api(df, val_col, suffix, threshold=0.15, min_sick_neighbors=3):
-    # Optimasi pencarian tetangga Heksagonal Mata Lima
-    def get_hex_neighbors(b, p):
-        if b % 2 == 0:
-            offsets = [(0, -1), (0, 1), (-1, -1), (-1, 0), (1, -1), (1, 0)]
-        else:
-            offsets = [(0, -1), (0, 1), (-1, 0), (-1, 1), (1, 0), (1, 1)]
-        return [(b + db, p + dp) for db, dp in offsets]
+def get_hex_neighbors(b, p):
+    if b % 2 == 0:
+        offsets = [(0, -1), (0, 1), (-1, -1), (-1, 0), (1, -1), (1, 0)]
+    else:
+        offsets = [(0, -1), (0, 1), (-1, 0), (-1, 1), (1, 0), (1, 1)]
+    return [(b + db, p + dp) for db, dp in offsets]
 
+def calc_cincin_api(df, val_col, suffix, threshold=0.15, min_sick_neighbors=3):
     # Pre-map nilai NDRE asli untuk Smoothing
     val_map = {}
     for _, row in df.iterrows():
@@ -199,25 +198,57 @@ def create_plotly_hex_map(df, val_col, suffix, year):
     # Terapkan offset heksagonal agar visualnya persis Mata Lima
     x_positions = df["n_pokok"] + (df["n_baris"] % 2) * 0.5
     
-    # ⛏️ Gambar Parit Isolasi terlebih dahulu agar berada di lapisan bawah pohon (sebagai ubin/moat parit)
+    # ⛏️ Gambar Garis Kontinu Parit Isolasi (Connection Lines)
     if f"parit_{suffix}" in df.columns:
         m_parit = df[f"parit_{suffix}"] == True
         parit_df = df[m_parit]
+        
         if not parit_df.empty:
+            # Build set of coordinates
+            parit_coords = set(zip(parit_df["n_baris"], parit_df["n_pokok"]))
+            
+            trench_x = []
+            trench_y = []
+            
+            for b, p in parit_coords:
+                x1 = p + (b % 2) * 0.5
+                y1 = b
+                
+                # Check neighbors
+                for nb, np_idx in get_hex_neighbors(b, p):
+                    if (nb, np_idx) in parit_coords:
+                        # Only draw line in one direction to prevent double drawing
+                        if (b, p) < (nb, np_idx):
+                            x2 = np_idx + (nb % 2) * 0.5
+                            y2 = nb
+                            trench_x.extend([x1, x2, None])
+                            trench_y.extend([y1, y2, None])
+            
+            # Gambar Jaring/Jalur penghubung antar titik parit
+            if trench_x:
+                fig.add_trace(go.Scatter(
+                    x=trench_x,
+                    y=trench_y,
+                    mode="lines",
+                    line=dict(color="#f39c12", width=4, dash="dash"),
+                    name="Garis Isolasi",
+                    hoverinfo="skip"
+                ))
+            
+            # Gambar Titik Pancang (Node) parit
             x_parit = x_positions[m_parit]
             fig.add_trace(go.Scatter(
                 x=x_parit,
                 y=parit_df["n_baris"],
                 mode="markers",
                 marker=dict(
-                    size=22, # Sangat besar
-                    symbol="hexagon",
-                    color="#34495e", # Gelap menyerupai parit tanah
-                    opacity=0.8,
-                    line=dict(width=3, color="#e74c3c") # Batas peringatan merah
+                    size=16,
+                    color="#2c3e50", # Gelap
+                    opacity=1.0,
+                    line=dict(width=1.5, color="#f1c40f")
                 ),
-                name="Parit Isolasi",
-                hoverinfo="skip" # Hindari menimpa hover tooltip pohon asli
+                name="Standar Pancang",
+                hoverinfo="skip"
             ))
             
     for cat_name, fill_col, stroke_col, size in categories:
