@@ -161,11 +161,11 @@ def calc_cincin_api(df, val_col, suffix, threshold=0.15, min_sick_neighbors=3):
                 df.at[row.name, f"kategori_{suffix}"] = "🟠 ORANYE (CINCIN)"
 
     # Fase 3: Rute Parit Isolasi (Trench)
-    # Rute parit adalah pohon-pohon sehat/suspect yang bersentuhan langsung dengan MERAH atau ORANYE.
+    # Rute parit adalah pohon-pohon sehat (HIJAU) yang bersentuhan langsung dengan zona berbahaya (MERAH, ORANYE, atau KUNING).
     infected_coords = set()
     for _, row in df.iterrows():
         kat = df.at[row.name, f"kategori_{suffix}"]
-        if kat in ("🔴 MERAH (INTI)", "🟠 ORANYE (CINCIN)"):
+        if kat in ("🔴 MERAH (INTI)", "🟠 ORANYE (CINCIN)", "🟡 KUNING (SUSPECT)"):
             infected_coords.add((int(row["n_baris"]), int(row["n_pokok"])))
             
     parit = []
@@ -198,56 +198,26 @@ def create_plotly_hex_map(df, val_col, suffix, year):
     # Terapkan offset heksagonal agar visualnya persis Mata Lima
     x_positions = df["n_pokok"] + (df["n_baris"] % 2) * 0.5
     
-    # ⛏️ Gambar Garis Kontinu Parit Isolasi (Connection Lines)
+    # ⛏️ Gambar Titik Lingkar Parit Isolasi (Halo/Boundary)
     if f"parit_{suffix}" in df.columns:
         m_parit = df[f"parit_{suffix}"] == True
         parit_df = df[m_parit]
         
         if not parit_df.empty:
-            # Build set of coordinates
-            parit_coords = set(zip(parit_df["n_baris"], parit_df["n_pokok"]))
-            
-            trench_x = []
-            trench_y = []
-            
-            for b, p in parit_coords:
-                x1 = p + (b % 2) * 0.5
-                y1 = b
-                
-                # Check neighbors
-                for nb, np_idx in get_hex_neighbors(b, p):
-                    if (nb, np_idx) in parit_coords:
-                        # Only draw line in one direction to prevent double drawing
-                        if (b, p) < (nb, np_idx):
-                            x2 = np_idx + (nb % 2) * 0.5
-                            y2 = nb
-                            trench_x.extend([x1, x2, None])
-                            trench_y.extend([y1, y2, None])
-            
-            # Gambar Jaring/Jalur penghubung antar titik parit
-            if trench_x:
-                fig.add_trace(go.Scatter(
-                    x=trench_x,
-                    y=trench_y,
-                    mode="lines",
-                    line=dict(color="#f39c12", width=4, dash="dash"),
-                    name="Garis Isolasi",
-                    hoverinfo="skip"
-                ))
-            
-            # Gambar Titik Pancang (Node) parit
             x_parit = x_positions[m_parit]
+            
+            # Gambar Lingkaran Batas (Halo outline) di sekeliling pohon parit
             fig.add_trace(go.Scatter(
                 x=x_parit,
                 y=parit_df["n_baris"],
                 mode="markers",
                 marker=dict(
                     size=16,
-                    color="#2c3e50", # Gelap
-                    opacity=1.0,
-                    line=dict(width=1.5, color="#f1c40f")
+                    symbol="circle-open",
+                    color="#2980b9", # Biru Batas Karantina
+                    line=dict(width=3, color="#2980b9")
                 ),
-                name="Standar Pancang",
+                name="Batas Isolasi",
                 hoverinfo="skip"
             ))
             
