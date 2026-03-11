@@ -77,6 +77,8 @@ def get_stats_html(df, suffix, trench_cfg=None):
     ring1 = (df[kat_col] == "🟠 ORANYE (CINCIN)").sum()
     ring2 = (df[kat_col] == "🟡 KUNING (SUSPECT)").sum()
     sehat = (df[kat_col] == "🟢 HIJAU (SEHAT)").sum()
+    sisip_count = int((df["is_sisip"] == True).sum()) if "is_sisip" in df.columns else 0
+    mati_count = int((df["is_mati"] == True).sum()) if "is_mati" in df.columns else 0
 
     if trench_cfg is None:
         trench_cfg = {
@@ -105,6 +107,16 @@ def get_stats_html(df, suffix, trench_cfg=None):
         <div style="background-color: #1e212b; padding: 12px; border-radius: 8px; border-left: 5px solid #2ecc71;">
             <div style="color: #2ecc71; font-size: 0.75rem; font-weight: 800; margin-bottom: 4px; letter-spacing: 0.5px;">🟢 HIJAU (SEHAT)</div>
             <div style="color: white; font-size: 1.4rem; font-weight: 700; line-height: 1;">{sehat:,} <span style="font-size: 0.8rem; font-weight: 400; color: #8e9ba9;">pohon</span></div>
+        </div>
+    </div>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
+        <div style="background-color: #1e212b; padding: 12px; border-radius: 8px; border-left: 5px solid #bdc3c7;">
+            <div style="color: #bdc3c7; font-size: 0.75rem; font-weight: 800; margin-bottom: 4px; letter-spacing: 0.5px;">⚪ SISIP (TOTAL BLOK)</div>
+            <div style="color: white; font-size: 1.2rem; font-weight: 700; line-height: 1;">{sisip_count:,} <span style="font-size: 0.8rem; font-weight: 400; color: #8e9ba9;">pohon</span></div>
+        </div>
+        <div style="background-color: #1e212b; padding: 12px; border-radius: 8px; border-left: 5px solid #34495e;">
+            <div style="color: #95a5a6; font-size: 0.75rem; font-weight: 800; margin-bottom: 4px; letter-spacing: 0.5px;">⚫ MATI/KOSONG (TOTAL BLOK)</div>
+            <div style="color: white; font-size: 1.2rem; font-weight: 700; line-height: 1;">{mati_count:,} <span style="font-size: 0.8rem; font-weight: 400; color: #8e9ba9;">pohon</span></div>
         </div>
     </div>
     """
