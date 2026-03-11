@@ -366,37 +366,34 @@ def load_all_data(selected_datasets: tuple, divisi_filter: str):
 
 
 # ══════════════════════════════════════════════════════════════════
-# SECTION: HEADER & SIDEBAR
+# SECTION: HEADER & FIlters
 # ══════════════════════════════════════════════════════════════════
-def render_sidebar():
-    with st.sidebar:
-        st.image("https://cdn-icons-png.flaticon.com/512/2787/2787815.png", width=60)
-        st.markdown("### 🌿 Dashboard NDRE")
-        st.markdown("**Pemantauan Vegetasi Drone**")
-        st.markdown("---")
-
-        st.subheader("⚙️ Filter Data")
+def render_filters():
+    st.markdown("### ⚙️ Filter Data")
+    col1, col2, col3 = st.columns([2, 5, 2])
+    with col1:
         dataset_label = st.selectbox(
             "Dataset Penerbangan",
             options=list(DATASET_OPTIONS.keys()),
             index=2,
-            help="Pilih dataset drone. 'Semua Divisi' menampilkan AME II & AME IV sekaligus.",
+            help="Pilih dataset drone. 'Semua Divisi' menampilkan AME II & AME IV.",
         )
         selected_dataset_tag = DATASET_OPTIONS[dataset_label]
-
+    
+    with col2:
         divisi_filter = st.selectbox(
             "Filter Divisi",
             options=["SEMUA", "AME II", "AME IV"],
             index=0,
         )
 
-        st.markdown("---")
-        st.caption("🕐 Data di-cache 5 menit")
-        st.caption("📅 Data terakhir: Penerbangan Drone Feb 2026")
-
+    with col3:
+        st.markdown("<br>", unsafe_allow_html=True)
         if st.button("🔄 Refresh Data", use_container_width=True):
             st.cache_data.clear()
             st.rerun()
+            
+    st.caption("🕐 Data di-cache 5 menit | 📅 Data terakhir: Penerbangan Drone Feb 2026")
 
     return selected_dataset_tag, divisi_filter
 
@@ -1398,9 +1395,6 @@ def main():
     </style>
     """, unsafe_allow_html=True)
 
-    # Sidebar & Filters
-    selected_dataset_tag, divisi_filter = render_sidebar()
-
     # Page Header
     st.markdown("""
     <div style="background:linear-gradient(135deg,#1a472a,#2ecc71);
@@ -1411,6 +1405,10 @@ def main():
         </p>
     </div>
     """, unsafe_allow_html=True)
+
+    # Filters (Formerly Sidebar)
+    selected_dataset_tag, divisi_filter = render_filters()
+    st.markdown("---")
 
     # Determine dataset tags
     if selected_dataset_tag == "__ALL__":
