@@ -1430,6 +1430,10 @@ def render_top_ekstrim_tab(data: Dict):
     df_rank["teks_bad"] = df_rank.apply(get_bad_text, axis=1)
     df_rank["teks_good"] = df_rank.apply(get_good_text, axis=1)
 
+    # Fallback ranking berbasis perubahan komposisi kelas (untuk kasus delta individual belum terisi)
+    df_rank["worsen_by_class"] = (df_rank["kritis_26"] - df_rank["kritis_25"]).clip(lower=0)
+    df_rank["improve_by_class"] = (df_rank["sehat_26"] - df_rank["sehat_25"]).clip(lower=0)
+
     divisi_list = sorted(df_rank["divisi"].dropna().unique().tolist()) if "divisi" in df_rank.columns else ["(semua)"]
 
     for divisi_name in divisi_list:
@@ -1444,18 +1448,25 @@ def render_top_ekstrim_tab(data: Dict):
 
         with col1:
             st.markdown("<h5 style='color:#c0392b; text-align:center;'>🔻 Top 10 Penurunan Paling Kritis</h5>", unsafe_allow_html=True)
-            top_bad = df_div.nlargest(10, "count_degraded").sort_values("count_degraded", ascending=True)
-            top_bad = top_bad[top_bad["count_degraded"] > 0]
+            has_delta_degraded = (df_div["count_degraded"] > 0).any()
+            metric_bad = "count_degraded" if has_delta_degraded else "worsen_by_class"
+            top_bad = df_div.nlargest(10, metric_bad).sort_values(metric_bad, ascending=True)
+            top_bad = top_bad[top_bad[metric_bad] > 0]
+
             if not top_bad.empty:
                 fig_bad = px.bar(
                     top_bad,
-                    x="count_degraded",
+                    x=metric_bad,
                     y="label_blok",
                     orientation="h",
                     text="teks_bad",
-                    color="count_degraded",
+                    color=metric_bad,
                     color_continuous_scale=[[0, "#f5b7b1"], [1, "#922b21"]],
-                    labels={"count_degraded": "Jumlah Pohon Menurun", "label_blok": "Nama Blok"},
+                    labels={
+                        "count_degraded": "Jumlah Pohon Menurun",
+                        "worsen_by_class": "Kenaikan Pohon Kritis (Berbasis Kelas)",
+                        "label_blok": "Nama Blok",
+                    },
                 )
                 fig_bad.update_layout(
                     height=450,
@@ -1468,23 +1479,32 @@ def render_top_ekstrim_tab(data: Dict):
                 )
                 fig_bad.update_traces(textposition="outside")
                 st.plotly_chart(fig_bad, use_container_width=True, key=f"top_10_bad_chart_{divisi_name}")
+                if metric_bad == "worsen_by_class":
+                    st.caption("Mode ranking fallback aktif: berdasarkan kenaikan total kelas kritis 2025→2026 per blok.")
             else:
                 st.success("Tidak ada penurunan ekstrem pada divisi ini.")
 
         with col2:
             st.markdown("<h5 style='color:#27ae60; text-align:center;'>🌟 Top 10 Peningkatan (Membaik)</h5>", unsafe_allow_html=True)
-            top_good = df_div.nlargest(10, "count_improved").sort_values("count_improved", ascending=True)
-            top_good = top_good[top_good["count_improved"] > 0]
+            has_delta_improved = (df_div["count_improved"] > 0).any()
+            metric_good = "count_improved" if has_delta_improved else "improve_by_class"
+            top_good = df_div.nlargest(10, metric_good).sort_values(metric_good, ascending=True)
+            top_good = top_good[top_good[metric_good] > 0]
+
             if not top_good.empty:
                 fig_good = px.bar(
                     top_good,
-                    x="count_improved",
+                    x=metric_good,
                     y="label_blok",
                     orientation="h",
                     text="teks_good",
-                    color="count_improved",
+                    color=metric_good,
                     color_continuous_scale=[[0, "#abebc6"], [1, "#1d8348"]],
-                    labels={"count_improved": "Jumlah Pohon Membaik", "label_blok": "Nama Blok"},
+                    labels={
+                        "count_improved": "Jumlah Pohon Membaik",
+                        "improve_by_class": "Kenaikan Pohon Sehat (Berbasis Kelas)",
+                        "label_blok": "Nama Blok",
+                    },
                 )
                 fig_good.update_layout(
                     height=450,
@@ -1497,6 +1517,8 @@ def render_top_ekstrim_tab(data: Dict):
                 )
                 fig_good.update_traces(textposition="outside")
                 st.plotly_chart(fig_good, use_container_width=True, key=f"top_10_good_chart_{divisi_name}")
+                if metric_good == "improve_by_class":
+                    st.caption("Mode ranking fallback aktif: berdasarkan kenaikan total kelas sehat 2025→2026 per blok.")
             else:
                 st.info("Belum ada peningkatan signifikan pada divisi ini.")
 
