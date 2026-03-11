@@ -1391,7 +1391,29 @@ def main():
         border-radius: 10px;
         padding: 14px 18px;
     }
-    div[data-testid="stTabs"] button { font-size: 0.95rem; font-weight: 600; }
+    /* Stylish Tabs */
+    div[data-testid="stTabs"] button[role="tab"] { 
+        font-size: 1.05rem; 
+        font-weight: 700; 
+        padding: 12px 24px;
+        background-color: #f1f2f6; 
+        border: 1px solid #dfe4ea;
+        border-bottom: none;
+        border-radius: 8px 8px 0 0;
+        margin-right: 6px;
+        color: #576574;
+        transition: all 0.2s ease;
+    }
+    div[data-testid="stTabs"] button[role="tab"]:hover {
+        background-color: #eafae3;
+        color: #27ae60;
+    }
+    div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
+        background-color: #2ecc71 !important;
+        color: white !important;
+        border-color: #2ecc71;
+        box-shadow: 0 -4px 10px rgba(46, 204, 113, 0.4);
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -1406,9 +1428,13 @@ def main():
     </div>
     """, unsafe_allow_html=True)
 
-    # Filters (Formerly Sidebar)
-    selected_dataset_tag, divisi_filter = render_filters()
-    st.markdown("---")
+    # Filters (Formerly Sidebar) - Dihilangkan untuk kepraktisan rapat
+    # selected_dataset_tag, divisi_filter = render_filters()
+    # st.markdown("---")
+    
+    # Set default ke SEMUA data sesuai preferensi tanpa filter
+    selected_dataset_tag = "__ALL__"
+    divisi_filter = "SEMUA"
 
     # Determine dataset tags
     if selected_dataset_tag == "__ALL__":
