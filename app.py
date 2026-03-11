@@ -1379,102 +1379,128 @@ def render_recommendations(data: Dict):
 # ══════════════════════════════════════════════════════════════════
 def render_top_ekstrim_tab(data: Dict):
     st.header("🏆 Peringkat Blok Perubahan Ekstrim (Top 10)")
-    st.caption("Menampilkan 10 Blok teratas dengan tingkat perubahan NDRE dan klasifikasi paling drastis antara 2025 dan 2026.")
+    st.caption("Menampilkan Top 10 blok untuk penurunan dan peningkatan per divisi (AME II & AME IV) jika histori 2025 tersedia.")
 
     blok_rows = data.get("blok_summary", [])
     if not blok_rows:
         st.info("Data ringkasan blok belum tersedia.")
         return
 
-    # Filter khusus blok yang punya histori perbandingan lengkap
-    valid_bloks = [b for b in blok_rows if b.get('pohon_lengkap', 0) > 0]
+    # Histori valid = punya pasangan data 2025-2026 di level pohon
+    valid_bloks = [b for b in blok_rows if (b.get("pohon_lengkap", 0) or 0) > 0]
     if not valid_bloks:
-        st.warning("⚠️ Tidak ada histori NDRE untuk diurutkan peringkatnya.")
+        st.warning("⚠️ Tidak ada histori NDRE 2025-2026 untuk dihitung Top 10 Ekstrim.")
         return
 
     df_rank = pd.DataFrame(valid_bloks)
-    for c in ["count_degraded", "count_improved", "avg_delta"]:
+
+    num_cols = [
+        "count_degraded", "count_improved", "avg_delta",
+        "klass25_sangat_berat", "klass25_stres_berat", "klass25_sedang", "klass25_ringan",
+        "klass26_sangat_berat", "klass26_stres_berat", "klass26_sedang", "klass26_ringan",
+    ]
+    for c in num_cols:
         if c in df_rank.columns:
             df_rank[c] = pd.to_numeric(df_rank[c], errors="coerce").fillna(0)
-            
-    # Buat format Label Blok yang rapi
-    df_rank["label_blok"] = df_rank.apply(lambda r: f"Blok {format_blok_display(r.get('blok', ''))} ({r.get('divisi', '')})", axis=1)
+
+    df_rank["label_blok"] = df_rank.apply(
+        lambda r: f"Blok {format_blok_display(r.get('blok', ''))} ({r.get('divisi', '')})", axis=1
+    )
 
     # Hitung populasi Kritis (Sangat Berat + Berat) dan Sehat (Sedang + Ringan)
     df_rank["kritis_25"] = df_rank.get("klass25_sangat_berat", 0) + df_rank.get("klass25_stres_berat", 0)
     df_rank["kritis_26"] = df_rank.get("klass26_sangat_berat", 0) + df_rank.get("klass26_stres_berat", 0)
     df_rank["sehat_25"] = df_rank.get("klass25_ringan", 0) + df_rank.get("klass25_sedang", 0)
     df_rank["sehat_26"] = df_rank.get("klass26_ringan", 0) + df_rank.get("klass26_sedang", 0)
-    
+
     def get_bad_text(r):
         k25 = int(r.get("kritis_25", 0))
         k26 = int(r.get("kritis_26", 0))
         pct = ((k26 - k25) / k25 * 100) if k25 > 0 else 0
         count_deg = int(r.get("count_degraded", 0))
-        # Mengembalikan string perbandingan + jumlah pohon menurun
         return f"Naik {pct:.1f}% ({k25}→{k26}) | +{count_deg} pohon"
-        
+
     def get_good_text(r):
         s25 = int(r.get("sehat_25", 0))
         s26 = int(r.get("sehat_26", 0))
         pct = ((s26 - s25) / s25 * 100) if s25 > 0 else 0
         count_imp = int(r.get("count_improved", 0))
         return f"Naik {pct:.1f}% ({s25}→{s26}) | +{count_imp} pohon"
-        
+
     df_rank["teks_bad"] = df_rank.apply(get_bad_text, axis=1)
     df_rank["teks_good"] = df_rank.apply(get_good_text, axis=1)
 
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("<h5 style='color:#c0392b; text-align:center;'>🔻 Top 10 Penurunan Paling Kritis</h5>", unsafe_allow_html=True)
-        if "count_degraded" in df_rank.columns:
-            top_bad = df_rank.nlargest(10, "count_degraded").sort_values("count_degraded", ascending=True)
+    divisi_list = sorted(df_rank["divisi"].dropna().unique().tolist()) if "divisi" in df_rank.columns else ["(semua)"]
+
+    for divisi_name in divisi_list:
+        df_div = df_rank[df_rank["divisi"] == divisi_name] if "divisi" in df_rank.columns else df_rank
+        if df_div.empty:
+            continue
+
+        st.markdown("---")
+        st.subheader(f"🌴 {divisi_name}")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.markdown("<h5 style='color:#c0392b; text-align:center;'>🔻 Top 10 Penurunan Paling Kritis</h5>", unsafe_allow_html=True)
+            top_bad = df_div.nlargest(10, "count_degraded").sort_values("count_degraded", ascending=True)
+            top_bad = top_bad[top_bad["count_degraded"] > 0]
             if not top_bad.empty:
                 fig_bad = px.bar(
-                    top_bad, x="count_degraded", y="label_blok", orientation="h",
-                    text="teks_bad", color="count_degraded",
+                    top_bad,
+                    x="count_degraded",
+                    y="label_blok",
+                    orientation="h",
+                    text="teks_bad",
+                    color="count_degraded",
                     color_continuous_scale=[[0, "#f5b7b1"], [1, "#922b21"]],
-                    labels={"count_degraded": "Jumlah Pohon Menurun", "label_blok": "Nama Blok"}
+                    labels={"count_degraded": "Jumlah Pohon Menurun", "label_blok": "Nama Blok"},
                 )
                 fig_bad.update_layout(
-                    height=450, showlegend=False, 
+                    height=450,
+                    showlegend=False,
                     coloraxis_showscale=False,
                     xaxis_title="Total Pohon Kritis (Merosot Kelas)",
                     yaxis_title="",
                     plot_bgcolor="white",
-                    margin=dict(r=20, l=120, b=0, t=10)
+                    margin=dict(r=20, l=120, b=0, t=10),
                 )
-                fig_bad.update_traces(textposition='outside')
-                st.plotly_chart(fig_bad, use_container_width=True, key="top_10_bad_chart")
+                fig_bad.update_traces(textposition="outside")
+                st.plotly_chart(fig_bad, use_container_width=True, key=f"top_10_bad_chart_{divisi_name}")
             else:
-                st.write("Tidak ada penurunan ekstrem.")
+                st.success("Tidak ada penurunan ekstrem pada divisi ini.")
 
-    with col2:
-        st.markdown("<h5 style='color:#27ae60; text-align:center;'>🌟 Top 10 Peningkatan (Membaik)</h5>", unsafe_allow_html=True)
-        if "count_improved" in df_rank.columns:
-            top_good = df_rank.nlargest(10, "count_improved").sort_values("count_improved", ascending=True)
+        with col2:
+            st.markdown("<h5 style='color:#27ae60; text-align:center;'>🌟 Top 10 Peningkatan (Membaik)</h5>", unsafe_allow_html=True)
+            top_good = df_div.nlargest(10, "count_improved").sort_values("count_improved", ascending=True)
+            top_good = top_good[top_good["count_improved"] > 0]
             if not top_good.empty:
                 fig_good = px.bar(
-                    top_good, x="count_improved", y="label_blok", orientation="h",
-                    text="teks_good", color="count_improved",
+                    top_good,
+                    x="count_improved",
+                    y="label_blok",
+                    orientation="h",
+                    text="teks_good",
+                    color="count_improved",
                     color_continuous_scale=[[0, "#abebc6"], [1, "#1d8348"]],
-                    labels={"count_improved": "Jumlah Pohon Membaik", "label_blok": "Nama Blok"}
+                    labels={"count_improved": "Jumlah Pohon Membaik", "label_blok": "Nama Blok"},
                 )
                 fig_good.update_layout(
-                    height=450, showlegend=False, 
+                    height=450,
+                    showlegend=False,
                     coloraxis_showscale=False,
                     xaxis_title="Total Pohon Membaik (Naik Kelas)",
                     yaxis_title="",
                     plot_bgcolor="white",
-                    margin=dict(r=20, l=120, b=0, t=10)
+                    margin=dict(r=20, l=120, b=0, t=10),
                 )
-                fig_good.update_traces(textposition='outside')
-                st.plotly_chart(fig_good, use_container_width=True, key="top_10_good_chart")
+                fig_good.update_traces(textposition="outside")
+                st.plotly_chart(fig_good, use_container_width=True, key=f"top_10_good_chart_{divisi_name}")
             else:
-                st.write("Tidak ada peningkatan signifikan.")
-                
-    st.info("💡 **Catatan untuk Divisi AME IV:** Divisi AME IV hanya memiliki data observasi Drone untuk baseline Tahun 2026 dan belum memiliki riwayat/histori data 2025. Oleh karena itu, AME IV tidak dapat dievaluasi status 'Peningkatan' atau 'Penurunannya' dan tidak akan masuk ke dalam klansmen perbandingan ekstrim ini.")
+                st.info("Belum ada peningkatan signifikan pada divisi ini.")
+
+    st.caption("Sumber data histori 2025 AME IV di-resolve dari payload sumber (raw CSV JSON) pada pipeline komparasi, sehingga blok AME IV ikut masuk ranking jika data lengkap tersedia.")
                 
 
 # ══════════════════════════════════════════════════════════════════
