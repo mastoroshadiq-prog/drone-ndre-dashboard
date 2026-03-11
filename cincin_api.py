@@ -58,7 +58,7 @@ def get_stats_html(df, suffix):
     sehat = (df[kat_col] == "🟢 HIJAU (SEHAT)").sum()
 
     html = f"""
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 15px;">
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
         <div style="background-color: #1e212b; padding: 12px; border-radius: 8px; border-left: 5px solid #c0392b;">
             <div style="color: #c0392b; font-size: 0.75rem; font-weight: 800; margin-bottom: 4px; letter-spacing: 0.5px;">🔴 MERAH (INTI)</div>
             <div style="color: white; font-size: 1.4rem; font-weight: 700; line-height: 1;">{core:,} <span style="font-size: 0.8rem; font-weight: 400; color: #8e9ba9;">pohon</span></div>
@@ -77,6 +77,21 @@ def get_stats_html(df, suffix):
         </div>
     </div>
     """
+    
+    # Parit Isolasi Stats
+    if f"parit_{suffix}" in df.columns:
+        parit_trees = df[f"parit_{suffix}"].sum()
+        panjang_parit_m = parit_trees * 9  # Jarak tanam standar ~9 meter
+        html += f"""
+        <div style="background-color: #1e212b; padding: 12px; border-radius: 8px; border: 1.5px dashed #7f8c8d; border-left: 5px solid #95a5a6; margin-bottom: 15px;">
+            <div style="color: #bdc3c7; font-size: 0.75rem; font-weight: 800; margin-bottom: 4px; letter-spacing: 0.5px;">⛏️ RENCANA PARIT ISOLASI</div>
+            <div style="color: white; font-size: 1.2rem; font-weight: 700; line-height: 1;">
+                {parit_trees:,} <span style="font-size: 0.8rem; font-weight: 400; color: #8e9ba9;">pohon pancang perbatasan</span> 
+                <span style="color:#7f8c8d; margin: 0 8px;">|</span> 
+                <span style="font-size: 0.95rem; color:#f1c40f;">Luas Galian ~ {panjang_parit_m:,} Meter</span>
+            </div>
+        </div>
+        """
     return html
 
 def calc_cincin_api(df, val_col, suffix, threshold=0.15, min_sick_neighbors=3):
@@ -146,6 +161,28 @@ def calc_cincin_api(df, val_col, suffix, threshold=0.15, min_sick_neighbors=3):
             if any(nb in merah_coords for nb in neighbors):
                 df.at[row.name, f"kategori_{suffix}"] = "🟠 ORANYE (CINCIN)"
 
+    # Fase 3: Rute Parit Isolasi (Trench)
+    # Rute parit adalah pohon-pohon sehat/suspect yang bersentuhan langsung dengan MERAH atau ORANYE.
+    infected_coords = set()
+    for _, row in df.iterrows():
+        kat = df.at[row.name, f"kategori_{suffix}"]
+        if kat in ("🔴 MERAH (INTI)", "🟠 ORANYE (CINCIN)"):
+            infected_coords.add((int(row["n_baris"]), int(row["n_pokok"])))
+            
+    parit = []
+    for _, row in df.iterrows():
+        b, p = int(row["n_baris"]), int(row["n_pokok"])
+        if (b, p) not in infected_coords:
+            neighbors = get_hex_neighbors(b, p)
+            if any(nb in infected_coords for nb in neighbors):
+                parit.append(True)
+            else:
+                parit.append(False)
+        else:
+            parit.append(False)
+            
+    df[f"parit_{suffix}"] = parit
+
     return df
 
 def create_plotly_hex_map(df, val_col, suffix, year):
@@ -194,6 +231,26 @@ def create_plotly_hex_map(df, val_col, suffix, year):
             customdata=customdata,
             hovertemplate=hovertemplate
         ))
+
+    # Overlay Tanda Parit Isolasi (Hexagon Open Mulus)
+    if f"parit_{suffix}" in df.columns:
+        m_parit = df[f"parit_{suffix}"] == True
+        parit_df = df[m_parit]
+        if not parit_df.empty:
+            x_parit = x_positions[m_parit]
+            fig.add_trace(go.Scatter(
+                x=x_parit,
+                y=parit_df["n_baris"],
+                mode="markers",
+                marker=dict(
+                    size=15,
+                    symbol="hexagon-open",
+                    color="#2c3e50", # Dark border for trench
+                    line=dict(width=2.5, color="#2c3e50")
+                ),
+                name="Parit Isolasi",
+                hoverinfo="skip" # Hindari menimpa hover tooltip pohon asli
+            ))
 
     fig.update_layout(
         plot_bgcolor="white",
