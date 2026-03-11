@@ -199,6 +199,27 @@ def create_plotly_hex_map(df, val_col, suffix, year):
     # Terapkan offset heksagonal agar visualnya persis Mata Lima
     x_positions = df["n_pokok"] + (df["n_baris"] % 2) * 0.5
     
+    # ⛏️ Gambar Parit Isolasi terlebih dahulu agar berada di lapisan bawah pohon (sebagai ubin/moat parit)
+    if f"parit_{suffix}" in df.columns:
+        m_parit = df[f"parit_{suffix}"] == True
+        parit_df = df[m_parit]
+        if not parit_df.empty:
+            x_parit = x_positions[m_parit]
+            fig.add_trace(go.Scatter(
+                x=x_parit,
+                y=parit_df["n_baris"],
+                mode="markers",
+                marker=dict(
+                    size=22, # Sangat besar
+                    symbol="hexagon",
+                    color="#34495e", # Gelap menyerupai parit tanah
+                    opacity=0.8,
+                    line=dict(width=3, color="#e74c3c") # Batas peringatan merah
+                ),
+                name="Parit Isolasi",
+                hoverinfo="skip" # Hindari menimpa hover tooltip pohon asli
+            ))
+            
     for cat_name, fill_col, stroke_col, size in categories:
         m_cat = df[f"kategori_{suffix}"] == cat_name
         d_sub = df[m_cat]
@@ -231,26 +252,6 @@ def create_plotly_hex_map(df, val_col, suffix, year):
             customdata=customdata,
             hovertemplate=hovertemplate
         ))
-
-    # Overlay Tanda Parit Isolasi (Hexagon Open Mulus)
-    if f"parit_{suffix}" in df.columns:
-        m_parit = df[f"parit_{suffix}"] == True
-        parit_df = df[m_parit]
-        if not parit_df.empty:
-            x_parit = x_positions[m_parit]
-            fig.add_trace(go.Scatter(
-                x=x_parit,
-                y=parit_df["n_baris"],
-                mode="markers",
-                marker=dict(
-                    size=15,
-                    symbol="hexagon-open",
-                    color="#2c3e50", # Dark border for trench
-                    line=dict(width=2.5, color="#2c3e50")
-                ),
-                name="Parit Isolasi",
-                hoverinfo="skip" # Hindari menimpa hover tooltip pohon asli
-            ))
 
     fig.update_layout(
         plot_bgcolor="white",
