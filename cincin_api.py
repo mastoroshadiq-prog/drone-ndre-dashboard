@@ -198,15 +198,70 @@ def create_plotly_hex_map(df, val_col, suffix, year):
     # Terapkan offset heksagonal agar visualnya persis Mata Lima
     x_positions = df["n_pokok"] + (df["n_baris"] % 2) * 0.5
     
-    # ⛏️ Gambar Titik Lingkar Parit Isolasi (Halo/Boundary)
+    # ⛏️ Gambar Garis Batas Parit Isolasi (Trench Boundary)
     if f"parit_{suffix}" in df.columns:
         m_parit = df[f"parit_{suffix}"] == True
         parit_df = df[m_parit]
         
         if not parit_df.empty:
-            x_parit = x_positions[m_parit]
+            # 1. Kumpulkan semua koordinat
+            infected_coords = set()
+            for _, row in df.iterrows():
+                if row[f"kategori_{suffix}"] in ("🔴 MERAH (INTI)", "🟠 ORANYE (CINCIN)", "🟡 KUNING (SUSPECT)"):
+                    infected_coords.add((int(row["n_baris"]), int(row["n_pokok"])))
+            
+            parit_coords = set(zip(parit_df["n_baris"], parit_df["n_pokok"]))
+            all_nodes = infected_coords.union(parit_coords)
+            
+            # 2. Cari semua pola segitiga ketetanggaan (faces of hex grid)
+            triangles = set()
+            for u in all_nodes:
+                neighbors = [n for n in get_hex_neighbors(*u) if n in all_nodes]
+                for v in neighbors:
+                    v_neighbors = set(get_hex_neighbors(*v))
+                    common = set(neighbors).intersection(v_neighbors)
+                    for w in common:
+                        triplet = tuple(sorted([u, v, w]))
+                        triangles.add(triplet)
+            
+            # 3. Fungsi mencari titik potong persis di tengah antara dua pohon
+            def get_mid(u, v):
+                xu = u[1] + (u[0] % 2) * 0.5
+                yu = u[0]
+                xv = v[1] + (v[0] % 2) * 0.5
+                yv = v[0]
+                return ((xu + xv) / 2, (yu + yv) / 2)
+            
+            # 4. Tarik garis batas pemisah (separating segments)
+            trench_x, trench_y = [], []
+            for u, v, w in triangles:
+                nodes = [u, v, w]
+                p_nodes = [n for n in nodes if n in parit_coords]
+                i_nodes = [n for n in nodes if n in infected_coords]
+                
+                if len(p_nodes) == 2 and len(i_nodes) == 1:
+                    m1 = get_mid(i_nodes[0], p_nodes[0])
+                    m2 = get_mid(i_nodes[0], p_nodes[1])
+                    trench_x.extend([m1[0], m2[0], None])
+                    trench_y.extend([m1[1], m2[1], None])
+                elif len(p_nodes) == 1 and len(i_nodes) == 2:
+                    m1 = get_mid(p_nodes[0], i_nodes[0])
+                    m2 = get_mid(p_nodes[0], i_nodes[1])
+                    trench_x.extend([m1[0], m2[0], None])
+                    trench_y.extend([m1[1], m2[1], None])
+            
+            if trench_x:
+                fig.add_trace(go.Scatter(
+                    x=trench_x,
+                    y=trench_y,
+                    mode="lines",
+                    line=dict(color="#f39c12", width=4, dash="dash"),
+                    name="Garis Isolasi",
+                    hoverinfo="skip"
+                ))
             
             # Gambar Lingkaran Batas (Halo outline) di sekeliling pohon parit
+            x_parit = x_positions[m_parit]
             fig.add_trace(go.Scatter(
                 x=x_parit,
                 y=parit_df["n_baris"],
