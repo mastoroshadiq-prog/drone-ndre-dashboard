@@ -26,6 +26,12 @@ def safe_float(v):
     except:
         return np.nan
 
+def format_rupiah(v):
+    try:
+        return f"Rp {float(v):,.0f}".replace(",", ".")
+    except:
+        return "Rp 0"
+
 def get_ndre25(r):
     v25 = r.get("ndre_1_25")
     if pd.notna(v25): 
@@ -65,12 +71,22 @@ def load_cincin_data(selected_dataset_tag: str, sel_div: str, sel_blok: str):
     
     return raw_rows, coord_rows
 
-def get_stats_html(df, suffix):
+def get_stats_html(df, suffix, trench_cfg=None):
     kat_col = f"kategori_{suffix}"
     core = (df[kat_col] == "🔴 MERAH (INTI)").sum()
     ring1 = (df[kat_col] == "🟠 ORANYE (CINCIN)").sum()
     ring2 = (df[kat_col] == "🟡 KUNING (SUSPECT)").sum()
     sehat = (df[kat_col] == "🟢 HIJAU (SEHAT)").sum()
+
+    if trench_cfg is None:
+        trench_cfg = {
+            "jarak_tanam_m": 9.0,
+            "lebar_parit_m": 1.0,
+            "dalam_parit_m": 1.0,
+            "biaya_galian_per_m3": 75000.0,
+            "biaya_pancang_per_titik": 15000.0,
+            "overhead_pct": 10.0,
+        }
 
     html = f"""
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
@@ -128,8 +144,22 @@ def get_stats_html(df, suffix):
     
     # Parit Isolasi Stats
     if f"parit_{suffix}" in df.columns:
-        parit_trees = df[f"parit_{suffix}"].sum()
-        panjang_parit_m = parit_trees * 9  # Jarak tanam standar ~9 meter
+        parit_trees = int(df[f"parit_{suffix}"].sum())
+        jarak_tanam_m = float(trench_cfg.get("jarak_tanam_m", 9.0))
+        lebar_parit_m = float(trench_cfg.get("lebar_parit_m", 1.0))
+        dalam_parit_m = float(trench_cfg.get("dalam_parit_m", 1.0))
+        biaya_galian_per_m3 = float(trench_cfg.get("biaya_galian_per_m3", 75000.0))
+        biaya_pancang_per_titik = float(trench_cfg.get("biaya_pancang_per_titik", 15000.0))
+        overhead_pct = float(trench_cfg.get("overhead_pct", 10.0))
+
+        panjang_parit_m = parit_trees * jarak_tanam_m
+        volume_galian_m3 = panjang_parit_m * lebar_parit_m * dalam_parit_m
+        biaya_galian = volume_galian_m3 * biaya_galian_per_m3
+        biaya_pancang = parit_trees * biaya_pancang_per_titik
+        subtotal_biaya = biaya_galian + biaya_pancang
+        overhead_biaya = subtotal_biaya * (overhead_pct / 100.0)
+        total_anggaran = subtotal_biaya + overhead_biaya
+
         html += f"""
 <div style="background-color: #1e212b; padding: 12px; border-radius: 8px; border: 1.5px dashed #7f8c8d; border-left: 5px solid #95a5a6; margin-bottom: 15px;">
     <div style="color: #bdc3c7; font-size: 0.75rem; font-weight: 800; margin-bottom: 4px; letter-spacing: 0.5px;">⛏️ RENCANA PARIT ISOLASI</div>
@@ -137,6 +167,13 @@ def get_stats_html(df, suffix):
         {parit_trees:,} <span style="font-size: 0.8rem; font-weight: 400; color: #8e9ba9;">pohon pancang perbatasan</span> 
         <span style="color:#7f8c8d; margin: 0 8px;">|</span> 
         <span style="font-size: 0.95rem; color:#f1c40f;">Luas Galian ~ {panjang_parit_m:,} Meter</span>
+    </div>
+    <div style="margin-top:8px; color:#dfe6e9; font-size:0.82rem; line-height:1.5;">
+        • Volume Galian: <b>{volume_galian_m3:,.1f} m³</b> ({lebar_parit_m:.2f}m × {dalam_parit_m:.2f}m × {panjang_parit_m:,.0f}m)<br>
+        • Estimasi Biaya Galian: <b>{format_rupiah(biaya_galian)}</b><br>
+        • Estimasi Biaya Pancang/Batas: <b>{format_rupiah(biaya_pancang)}</b><br>
+        • Overhead ({overhead_pct:.1f}%): <b>{format_rupiah(overhead_biaya)}</b><br>
+        • <span style="color:#f1c40f;">Total Estimasi Anggaran: <b>{format_rupiah(total_anggaran)}</b></span>
     </div>
 </div>
 """
@@ -401,6 +438,27 @@ def render_cincin_api_tab(data: dict, selected_dataset_tag: str):
     col_t1, col_t2 = st.columns([1, 4])
     with col_t1:
         threshold_val = st.slider("Threshold Persentil Sakit", min_value=0.05, max_value=0.30, value=0.15, step=0.01, help="Pohon dengan NDRE pada % terendah dianggap berpotensi MERAH/KUNING.")
+    with col_t2:
+        with st.expander("⚙️ Parameter Dinamis Estimasi Parit Isolasi & Anggaran", expanded=False):
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                jarak_tanam_m = st.number_input("Jarak antar titik (meter)", min_value=1.0, max_value=15.0, value=9.0, step=0.5, key="trench_jarak")
+                lebar_parit_m = st.number_input("Lebar parit (meter)", min_value=0.3, max_value=5.0, value=1.0, step=0.1, key="trench_lebar")
+            with c2:
+                dalam_parit_m = st.number_input("Kedalaman parit (meter)", min_value=0.3, max_value=5.0, value=1.0, step=0.1, key="trench_dalam")
+                biaya_galian_per_m3 = st.number_input("Biaya galian per m³ (Rp)", min_value=0.0, value=75000.0, step=5000.0, key="trench_biaya_m3")
+            with c3:
+                biaya_pancang_per_titik = st.number_input("Biaya pancang per titik (Rp)", min_value=0.0, value=15000.0, step=1000.0, key="trench_biaya_pancang")
+                overhead_pct = st.number_input("Overhead/contingency (%)", min_value=0.0, max_value=100.0, value=10.0, step=0.5, key="trench_overhead")
+
+    trench_cfg = {
+        "jarak_tanam_m": jarak_tanam_m,
+        "lebar_parit_m": lebar_parit_m,
+        "dalam_parit_m": dalam_parit_m,
+        "biaya_galian_per_m3": biaya_galian_per_m3,
+        "biaya_pancang_per_titik": biaya_pancang_per_titik,
+        "overhead_pct": overhead_pct,
+    }
 
     blok_rows = data.get("blok_summary", [])
     if not blok_rows:
@@ -479,14 +537,14 @@ def render_cincin_api_tab(data: dict, selected_dataset_tag: str):
         
         with col_map1:
             st.markdown(f"<h5 style='text-align: center;'>Penerbangan 2025</h5>", unsafe_allow_html=True)
-            st.markdown(get_stats_html(df, "25"), unsafe_allow_html=True)
+            st.markdown(get_stats_html(df, "25", trench_cfg), unsafe_allow_html=True)
             
             fig_25 = create_plotly_hex_map(df, "val_2025", "25", "2025")
             st.plotly_chart(fig_25, use_container_width=True, key="fig25", config={'scrollZoom': True})
             
         with col_map2:
             st.markdown(f"<h5 style='text-align: center;'>Penerbangan 2026</h5>", unsafe_allow_html=True)
-            st.markdown(get_stats_html(df, "26"), unsafe_allow_html=True)
+            st.markdown(get_stats_html(df, "26", trench_cfg), unsafe_allow_html=True)
             
             fig_26 = create_plotly_hex_map(df, "val_2026", "26", "2026")
             st.plotly_chart(fig_26, use_container_width=True, key="fig26", config={'scrollZoom': True})
@@ -494,3 +552,4 @@ def render_cincin_api_tab(data: dict, selected_dataset_tag: str):
         st.markdown("<br>", unsafe_allow_html=True)
         st.caption(f"**Insight:** Menampilkan Cincin Api di blok {sel_div} - {disp_blok} ({len(df):,} pohon terdeteksi). "
                    "Peta di atas adalah **Grid Spasial Heksagonal (Mata Lima)**, mengasumsikan offset +0.5 pada baris ganjil/genap agar susunan pohon saling mengunci secara alami.")
+        st.caption("Catatan: angka pancang/perimeter parit dihitung untuk blok yang sedang dipilih (bukan agregat lintas blok).")
