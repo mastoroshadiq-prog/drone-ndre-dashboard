@@ -40,6 +40,17 @@ def get_ndre25(r):
                 return safe_float(val)
     return np.nan
 
+def check_is_sisip(r):
+    raw = r.get("raw_csv_json") or {}
+    if isinstance(raw, dict):
+        for year in ["source_2026", "source_2025"]:
+            src = raw.get(year, {})
+            if isinstance(src, dict):
+                ket = str(src.get("ket", "")).lower()
+                if "sisip" in ket:
+                    return True
+    return False
+
 @st.cache_data(ttl=300, show_spinner=False)
 def load_cincin_data(selected_dataset_tag: str, sel_div: str, sel_blok: str):
     client = get_supabase_client()
@@ -77,6 +88,18 @@ def get_stats_html(df, suffix):
         </div>
     </div>
     """
+    
+    sisip = (df[kat_col] == "⚪ SISIP (IGNORED)").sum()
+    if sisip > 0:
+        html += f"""
+<div style="background-color: #1e212b; padding: 12px; border-radius: 8px; border-left: 5px solid #bdc3c7; margin-bottom: 8px;">
+    <div style="color: #bdc3c7; font-size: 0.75rem; font-weight: 800; margin-bottom: 4px; letter-spacing: 0.5px;">⚪ SISIP (IGNORED)</div>
+    <div style="color: white; font-size: 1.2rem; font-weight: 700; line-height: 1;">
+        {sisip:,} <span style="font-size: 0.8rem; font-weight: 400; color: #8e9ba9;">pohon muda dikecualikan</span>
+    </div>
+</div>
+"""
+
     
     # Parit Isolasi Stats
     if f"parit_{suffix}" in df.columns:
@@ -123,14 +146,24 @@ def calc_cincin_api(df, val_col, suffix, threshold=0.15, min_sick_neighbors=3):
     df[f"smoothed_{suffix}"] = smoothed_vals
 
     # 2. Hitung Ranking Percentile pada Nilai yang Telah Dihaluskan
-    # NDRE Rendah = Rentan (Sakit). Kita rank persentil berurut ke atas.
-    df[f"pct_{suffix}"] = df[f"smoothed_{suffix}"].rank(pct=True, method='dense')
+    # NDRE Rendah = Rentan (Sakit). Kita rank persentil berurut ke atas. (Kecuali Sisip)
+    if "is_sisip" in df.columns:
+        valid_mask = ~df["is_sisip"]
+    else:
+        valid_mask = pd.Series(True, index=df.index)
+        
+    df.loc[valid_mask, f"pct_{suffix}"] = df.loc[valid_mask, f"smoothed_{suffix}"].rank(pct=True, method='dense')
+    df.loc[~valid_mask, f"pct_{suffix}"] = np.nan
     
     # Precompute map is_suspect
     is_suspect_map = {}
     for _, row in df.iterrows():
         b, p = int(row["n_baris"]), int(row["n_pokok"])
-        is_suspect_map[(b, p)] = row[f"pct_{suffix}"] <= threshold
+        is_sisip = row["is_sisip"] if "is_sisip" in row else False
+        if is_sisip:
+            is_suspect_map[(b, p)] = False
+        else:
+            is_suspect_map[(b, p)] = row[f"pct_{suffix}"] <= threshold
 
     # Fase 1: Klasifikasi Core & Suspect
     kategori = []
@@ -138,7 +171,11 @@ def calc_cincin_api(df, val_col, suffix, threshold=0.15, min_sick_neighbors=3):
     
     for _, row in df.iterrows():
         b, p = int(row["n_baris"]), int(row["n_pokok"])
-        if is_suspect_map[(b, p)]:
+        is_sisip = row["is_sisip"] if "is_sisip" in row else False
+        
+        if is_sisip:
+            kategori.append("⚪ SISIP (IGNORED)")
+        elif is_suspect_map[(b, p)]:
             neighbors = get_hex_neighbors(b, p)
             sick_count = sum(1 for nb in neighbors if is_suspect_map.get(nb, False))
             if sick_count >= min_sick_neighbors:
@@ -189,6 +226,7 @@ def create_plotly_hex_map(df, val_col, suffix, year):
     fig = go.Figure()
     
     categories = [
+        ("⚪ SISIP (IGNORED)", "#ecf0f1", "#bdc3c7", 6),
         ("🟢 HIJAU (SEHAT)", "#eafae3", "#82e0aa", 8),
         ("🟡 KUNING (SUSPECT)", "#f1c40f", "#d68910", 10),
         ("🟠 ORANYE (CINCIN)", "#e67e22", "#ba4a00", 12),
@@ -381,6 +419,7 @@ def render_cincin_api_tab(data: dict, selected_dataset_tag: str):
         df_coord["n_pokok"] = pd.to_numeric(df_coord["n_pokok"], errors='coerce')
         df_ndre["n_baris"] = pd.to_numeric(df_ndre["n_baris"], errors='coerce')
         df_ndre["n_pokok"] = pd.to_numeric(df_ndre["n_pokok"], errors='coerce')
+        df_ndre["is_sisip"] = df_ndre.apply(check_is_sisip, axis=1)
         
         df = pd.merge(df_ndre, df_coord, on=["n_baris", "n_pokok"], how="inner")
         df = df.dropna(subset=["n_baris", "n_pokok"])
