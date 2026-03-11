@@ -1477,7 +1477,11 @@ def render_top_ekstrim_tab(data: Dict):
                     plot_bgcolor="white",
                     margin=dict(r=20, l=120, b=0, t=10),
                 )
-                fig_bad.update_traces(textposition="outside")
+                fig_bad.update_traces(
+                    textposition="inside",
+                    insidetextanchor="middle",
+                    textfont=dict(color="white", size=11),
+                )
                 st.plotly_chart(fig_bad, use_container_width=True, key=f"top_10_bad_chart_{divisi_name}")
                 if metric_bad == "worsen_by_class":
                     st.caption("Mode ranking fallback aktif: berdasarkan kenaikan total kelas kritis 2025→2026 per blok.")
@@ -1515,7 +1519,11 @@ def render_top_ekstrim_tab(data: Dict):
                     plot_bgcolor="white",
                     margin=dict(r=20, l=120, b=0, t=10),
                 )
-                fig_good.update_traces(textposition="outside")
+                fig_good.update_traces(
+                    textposition="inside",
+                    insidetextanchor="middle",
+                    textfont=dict(color="white", size=11),
+                )
                 st.plotly_chart(fig_good, use_container_width=True, key=f"top_10_good_chart_{divisi_name}")
                 if metric_good == "improve_by_class":
                     st.caption("Mode ranking fallback aktif: berdasarkan kenaikan total kelas sehat 2025→2026 per blok.")
