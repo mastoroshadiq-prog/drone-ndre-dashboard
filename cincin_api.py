@@ -435,83 +435,7 @@ def render_cincin_api_tab(data: dict, selected_dataset_tag: str):
     st.header("🔥 Cincin Api (Ring of Fire) - Perbandingan 2025 vs 2026")
     st.caption("Klasifikasi berbasis aturan spasial heksagonal (mata lima) dan ranking persentil blok.")
     
-    col_t1, col_t2 = st.columns([1, 4])
-    with col_t1:
-        threshold_val = st.slider("Threshold Persentil Sakit", min_value=0.05, max_value=0.30, value=0.15, step=0.01, help="Pohon dengan NDRE pada % terendah dianggap berpotensi MERAH/KUNING.")
-    with col_t2:
-        with st.expander("⚙️ Parameter Dinamis Estimasi Parit Isolasi & Anggaran", expanded=False):
-            st.info(
-                "ℹ️ **Kenapa parameter ini dibutuhkan?** "
-                "Estimasi volume dan anggaran parit sangat dipengaruhi dimensi fisik parit, "
-                "jarak antar titik pancang, biaya satuan, dan faktor overhead operasional. "
-                "Silakan sesuaikan dengan standar lapangan masing-masing estate/divisi."
-            )
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                jarak_tanam_m = st.number_input(
-                    "Jarak antar titik (meter)",
-                    min_value=1.0,
-                    max_value=15.0,
-                    value=9.0,
-                    step=0.5,
-                    key="trench_jarak",
-                    help="Dipakai untuk konversi jumlah titik pancang menjadi estimasi panjang parit."
-                )
-                lebar_parit_m = st.number_input(
-                    "Lebar parit (meter)",
-                    min_value=0.3,
-                    max_value=5.0,
-                    value=1.0,
-                    step=0.1,
-                    key="trench_lebar",
-                    help="Komponen dimensi volume galian. Semakin lebar, volume dan biaya naik."
-                )
-            with c2:
-                dalam_parit_m = st.number_input(
-                    "Kedalaman parit (meter)",
-                    min_value=0.3,
-                    max_value=5.0,
-                    value=1.0,
-                    step=0.1,
-                    key="trench_dalam",
-                    help="Komponen dimensi volume galian. Semakin dalam, volume dan biaya naik."
-                )
-                biaya_galian_per_m3 = st.number_input(
-                    "Biaya galian per m³ (Rp)",
-                    min_value=0.0,
-                    value=75000.0,
-                    step=5000.0,
-                    key="trench_biaya_m3",
-                    help="Tarif pekerjaan tanah per meter kubik sesuai harga lokal/vendor."
-                )
-            with c3:
-                biaya_pancang_per_titik = st.number_input(
-                    "Biaya pancang per titik (Rp)",
-                    min_value=0.0,
-                    value=15000.0,
-                    step=1000.0,
-                    key="trench_biaya_pancang",
-                    help="Biaya material + tenaga untuk setiap titik pancang batas parit."
-                )
-                overhead_pct = st.number_input(
-                    "Overhead/contingency (%)",
-                    min_value=0.0,
-                    max_value=100.0,
-                    value=10.0,
-                    step=0.5,
-                    key="trench_overhead",
-                    help="Cadangan biaya operasional tak langsung (transport, supervisi, risiko lapangan)."
-                )
-            st.caption("Tip: arahkan kursor ke ikon ⓘ pada tiap input untuk penjelasan ringkas parameter.")
-
-    trench_cfg = {
-        "jarak_tanam_m": jarak_tanam_m,
-        "lebar_parit_m": lebar_parit_m,
-        "dalam_parit_m": dalam_parit_m,
-        "biaya_galian_per_m3": biaya_galian_per_m3,
-        "biaya_pancang_per_titik": biaya_pancang_per_titik,
-        "overhead_pct": overhead_pct,
-    }
+    threshold_val = st.slider("Threshold Persentil Sakit", min_value=0.05, max_value=0.30, value=0.15, step=0.01, help="Pohon dengan NDRE pada % terendah dianggap berpotensi MERAH/KUNING.")
 
     blok_rows = data.get("blok_summary", [])
     if not blok_rows:
@@ -538,7 +462,82 @@ def render_cincin_api_tab(data: dict, selected_dataset_tag: str):
 
     if not sel_div or not sel_blok:
         return
-        
+
+    # Parameter estimasi ditempatkan tepat di bawah dropdown divisi/blok
+    with st.expander("⚙️ Parameter Dinamis Estimasi Parit Isolasi & Anggaran", expanded=False):
+        st.info(
+            "ℹ️ **Kenapa parameter ini dibutuhkan?** "
+            "Estimasi volume dan anggaran parit sangat dipengaruhi dimensi fisik parit, "
+            "jarak antar titik pancang, biaya satuan, dan faktor overhead operasional. "
+            "Silakan sesuaikan dengan standar lapangan masing-masing estate/divisi."
+        )
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            jarak_tanam_m = st.number_input(
+                "Jarak antar titik (meter)",
+                min_value=1.0,
+                max_value=15.0,
+                value=9.0,
+                step=0.5,
+                key="trench_jarak",
+                help="Dipakai untuk konversi jumlah titik pancang menjadi estimasi panjang parit."
+            )
+            lebar_parit_m = st.number_input(
+                "Lebar parit (meter)",
+                min_value=0.3,
+                max_value=5.0,
+                value=1.0,
+                step=0.1,
+                key="trench_lebar",
+                help="Komponen dimensi volume galian. Semakin lebar, volume dan biaya naik."
+            )
+        with c2:
+            dalam_parit_m = st.number_input(
+                "Kedalaman parit (meter)",
+                min_value=0.3,
+                max_value=5.0,
+                value=1.0,
+                step=0.1,
+                key="trench_dalam",
+                help="Komponen dimensi volume galian. Semakin dalam, volume dan biaya naik."
+            )
+            biaya_galian_per_m3 = st.number_input(
+                "Biaya galian per m³ (Rp)",
+                min_value=0.0,
+                value=75000.0,
+                step=5000.0,
+                key="trench_biaya_m3",
+                help="Tarif pekerjaan tanah per meter kubik sesuai harga lokal/vendor."
+            )
+        with c3:
+            biaya_pancang_per_titik = st.number_input(
+                "Biaya pancang per titik (Rp)",
+                min_value=0.0,
+                value=15000.0,
+                step=1000.0,
+                key="trench_biaya_pancang",
+                help="Biaya material + tenaga untuk setiap titik pancang batas parit."
+            )
+            overhead_pct = st.number_input(
+                "Overhead/contingency (%)",
+                min_value=0.0,
+                max_value=100.0,
+                value=10.0,
+                step=0.5,
+                key="trench_overhead",
+                help="Cadangan biaya operasional tak langsung (transport, supervisi, risiko lapangan)."
+            )
+        st.caption("Tip: arahkan kursor ke ikon ⓘ pada tiap input untuk penjelasan ringkas parameter.")
+
+    trench_cfg = {
+        "jarak_tanam_m": jarak_tanam_m,
+        "lebar_parit_m": lebar_parit_m,
+        "dalam_parit_m": dalam_parit_m,
+        "biaya_galian_per_m3": biaya_galian_per_m3,
+        "biaya_pancang_per_titik": biaya_pancang_per_titik,
+        "overhead_pct": overhead_pct,
+    }
+
     st.markdown("---")
 
     disp_blok = format_blok_display(sel_blok)
