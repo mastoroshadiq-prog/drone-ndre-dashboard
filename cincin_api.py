@@ -40,16 +40,19 @@ def get_ndre25(r):
                 return safe_float(val)
     return np.nan
 
-def check_is_sisip(r):
+def extract_status(r):
     raw = r.get("raw_csv_json") or {}
     if isinstance(raw, dict):
         for year in ["source_2026", "source_2025"]:
             src = raw.get(year, {})
             if isinstance(src, dict):
-                ket = str(src.get("ket", "")).lower()
-                if "sisip" in ket:
-                    return True
-    return False
+                ket = str(src.get("ket", "")).strip()
+                if ket and ket not in ("-", "nan", ""):
+                    ket_lower = ket.lower()
+                    is_mati = "mati" in ket_lower or "kosong" in ket_lower
+                    is_sisip = "sisip" in ket_lower and not is_mati
+                    return pd.Series([is_sisip, is_mati, ket])
+    return pd.Series([False, False, "Pokok Utama"])
 
 @st.cache_data(ttl=300, show_spinner=False)
 def load_cincin_data(selected_dataset_tag: str, sel_div: str, sel_blok: str):
@@ -89,13 +92,34 @@ def get_stats_html(df, suffix):
     </div>
     """
     
-    sisip = (df[kat_col] == "⚪ SISIP (IGNORED)").sum()
-    if sisip > 0:
+    sisip_df = df[df["is_sisip"] == True]
+    if not sisip_df.empty:
+        sisip_counts = sisip_df["ket_raw"].value_counts()
+        sisip_text = "<br>".join([f"• {k}: <b>{v}</b>" for k, v in sisip_counts.items()])
         html += f"""
 <div style="background-color: #1e212b; padding: 12px; border-radius: 8px; border-left: 5px solid #bdc3c7; margin-bottom: 8px;">
     <div style="color: #bdc3c7; font-size: 0.75rem; font-weight: 800; margin-bottom: 4px; letter-spacing: 0.5px;">⚪ SISIP (IGNORED)</div>
-    <div style="color: white; font-size: 1.2rem; font-weight: 700; line-height: 1;">
-        {sisip:,} <span style="font-size: 0.8rem; font-weight: 400; color: #8e9ba9;">pohon muda dikecualikan</span>
+    <div style="color: white; font-size: 1.2rem; font-weight: 700; line-height: 1.2; margin-bottom: 4px;">
+        {len(sisip_df):,} <span style="font-size: 0.8rem; font-weight: 400; color: #8e9ba9;">pohon disisihkan (Masih terlalu muda)</span>
+    </div>
+    <div style="font-size: 0.8rem; color: #95a5a6; line-height: 1.4;">
+        {sisip_text}
+    </div>
+</div>
+"""
+        
+    mati_df = df[df["is_mati"] == True]
+    if not mati_df.empty:
+        mati_counts = mati_df["ket_raw"].value_counts()
+        mati_text = "<br>".join([f"• {k}: <b>{v}</b>" for k, v in mati_counts.items()])
+        html += f"""
+<div style="background-color: #1e212b; padding: 12px; border-radius: 8px; border-left: 5px solid #34495e; margin-bottom: 8px;">
+    <div style="color: #95a5a6; font-size: 0.75rem; font-weight: 800; margin-bottom: 4px; letter-spacing: 0.5px;">⚫ POHON KOSONG / MATI</div>
+    <div style="color: white; font-size: 1.2rem; font-weight: 700; line-height: 1.2; margin-bottom: 4px;">
+        {len(mati_df):,} <span style="font-size: 0.8rem; font-weight: 400; color: #8e9ba9;">titik Episentrum Kosong</span>
+    </div>
+    <div style="font-size: 0.8rem; color: #7f8c8d; line-height: 1.4;">
+        {mati_text}
     </div>
 </div>
 """
@@ -146,9 +170,8 @@ def calc_cincin_api(df, val_col, suffix, threshold=0.15, min_sick_neighbors=3):
     df[f"smoothed_{suffix}"] = smoothed_vals
 
     # 2. Hitung Ranking Percentile pada Nilai yang Telah Dihaluskan
-    # NDRE Rendah = Rentan (Sakit). Kita rank persentil berurut ke atas. (Kecuali Sisip)
-    if "is_sisip" in df.columns:
-        valid_mask = ~df["is_sisip"]
+    if "is_sisip" in df.columns and "is_mati" in df.columns:
+        valid_mask = ~(df["is_sisip"] | df["is_mati"])
     else:
         valid_mask = pd.Series(True, index=df.index)
         
@@ -159,9 +182,13 @@ def calc_cincin_api(df, val_col, suffix, threshold=0.15, min_sick_neighbors=3):
     is_suspect_map = {}
     for _, row in df.iterrows():
         b, p = int(row["n_baris"]), int(row["n_pokok"])
-        is_sisip = row["is_sisip"] if "is_sisip" in row else False
+        is_sisip = row.get("is_sisip", False)
+        is_mati = row.get("is_mati", False)
+        
         if is_sisip:
             is_suspect_map[(b, p)] = False
+        elif is_mati:
+            is_suspect_map[(b, p)] = True
         else:
             is_suspect_map[(b, p)] = row[f"pct_{suffix}"] <= threshold
 
@@ -171,10 +198,14 @@ def calc_cincin_api(df, val_col, suffix, threshold=0.15, min_sick_neighbors=3):
     
     for _, row in df.iterrows():
         b, p = int(row["n_baris"]), int(row["n_pokok"])
-        is_sisip = row["is_sisip"] if "is_sisip" in row else False
+        is_sisip = row.get("is_sisip", False)
+        is_mati = row.get("is_mati", False)
         
         if is_sisip:
             kategori.append("⚪ SISIP (IGNORED)")
+        elif is_mati:
+            kategori.append("⚫ KOSONG/MATI")
+            merah_coords.add((b, p))
         elif is_suspect_map[(b, p)]:
             neighbors = get_hex_neighbors(b, p)
             sick_count = sum(1 for nb in neighbors if is_suspect_map.get(nb, False))
@@ -189,20 +220,19 @@ def calc_cincin_api(df, val_col, suffix, threshold=0.15, min_sick_neighbors=3):
     df[f"kategori_{suffix}"] = kategori
     
     # Fase 2: Expand Ring (Oranye)
-    # Ubah yang TETANGGA langsung dari MERAH (tapi bukan MERAH) menjadi ORANYE
     for _, row in df.iterrows():
         b, p = int(row["n_baris"]), int(row["n_pokok"])
-        if df.at[row.name, f"kategori_{suffix}"] != "🔴 MERAH (INTI)":
+        kat = df.at[row.name, f"kategori_{suffix}"]
+        if kat not in ("🔴 MERAH (INTI)", "⚫ KOSONG/MATI", "⚪ SISIP (IGNORED)"):
             neighbors = get_hex_neighbors(b, p)
             if any(nb in merah_coords for nb in neighbors):
                 df.at[row.name, f"kategori_{suffix}"] = "🟠 ORANYE (CINCIN)"
 
     # Fase 3: Rute Parit Isolasi (Trench)
-    # Rute parit adalah pohon-pohon sehat (HIJAU) yang bersentuhan langsung dengan zona berbahaya (MERAH, ORANYE, atau KUNING).
     infected_coords = set()
     for _, row in df.iterrows():
         kat = df.at[row.name, f"kategori_{suffix}"]
-        if kat in ("🔴 MERAH (INTI)", "🟠 ORANYE (CINCIN)", "🟡 KUNING (SUSPECT)"):
+        if kat in ("🔴 MERAH (INTI)", "⚫ KOSONG/MATI", "🟠 ORANYE (CINCIN)", "🟡 KUNING (SUSPECT)"):
             infected_coords.add((int(row["n_baris"]), int(row["n_pokok"])))
             
     parit = []
@@ -226,11 +256,12 @@ def create_plotly_hex_map(df, val_col, suffix, year):
     fig = go.Figure()
     
     categories = [
-        ("⚪ SISIP (IGNORED)", "#ecf0f1", "#bdc3c7", 6),
+        ("⚪ SISIP (IGNORED)", "#bdc3c7", "#95a5a6", 6),
         ("🟢 HIJAU (SEHAT)", "#eafae3", "#82e0aa", 8),
         ("🟡 KUNING (SUSPECT)", "#f1c40f", "#d68910", 10),
         ("🟠 ORANYE (CINCIN)", "#e67e22", "#ba4a00", 12),
-        ("🔴 MERAH (INTI)", "#c0392b", "#7b241c", 14)
+        ("🔴 MERAH (INTI)", "#c0392b", "#7b241c", 14),
+        ("⚫ KOSONG/MATI", "#2c3e50", "#1a252f", 12)
     ]
     
     # Terapkan offset heksagonal agar visualnya persis Mata Lima
@@ -245,7 +276,7 @@ def create_plotly_hex_map(df, val_col, suffix, year):
             # 1. Kumpulkan semua koordinat
             infected_coords = set()
             for _, row in df.iterrows():
-                if row[f"kategori_{suffix}"] in ("🔴 MERAH (INTI)", "🟠 ORANYE (CINCIN)", "🟡 KUNING (SUSPECT)"):
+                if row[f"kategori_{suffix}"] in ("🔴 MERAH (INTI)", "⚫ KOSONG/MATI", "🟠 ORANYE (CINCIN)", "🟡 KUNING (SUSPECT)"):
                     infected_coords.add((int(row["n_baris"]), int(row["n_pokok"])))
             
             parit_coords = set(zip(parit_df["n_baris"], parit_df["n_pokok"]))
@@ -322,12 +353,13 @@ def create_plotly_hex_map(df, val_col, suffix, year):
         if d_sub.empty:
             continue
             
-        customdata = d_sub[["n_baris", "n_pokok", val_col, f"pct_{suffix}"]].values
+        customdata = d_sub[["n_baris", "n_pokok", val_col, f"pct_{suffix}", "ket_raw"]].values
         
-        title = cat_name.split(' ')[1]
+        title = cat_name.split(' ')[1] if ' ' in cat_name else cat_name
         hovertemplate = (
             f"<b>{title}</b><br><br>" + 
             "Row: %{customdata[0]:.0f} | Tree: %{customdata[1]:.0f}<br>" +
+            "Status: <b>%{customdata[4]}</b><br>" +
             f"NDRE {year}: %{{customdata[2]:.3f}}<br>" +
             "Percentile: %{customdata[3]:.1%}<extra></extra>"
         )
@@ -419,10 +451,18 @@ def render_cincin_api_tab(data: dict, selected_dataset_tag: str):
         df_coord["n_pokok"] = pd.to_numeric(df_coord["n_pokok"], errors='coerce')
         df_ndre["n_baris"] = pd.to_numeric(df_ndre["n_baris"], errors='coerce')
         df_ndre["n_pokok"] = pd.to_numeric(df_ndre["n_pokok"], errors='coerce')
-        df_ndre["is_sisip"] = df_ndre.apply(check_is_sisip, axis=1)
+        df_ndre[["is_sisip", "is_mati", "ket_raw"]] = df_ndre.apply(extract_status, axis=1)
         
+        # Penyelamatan data Sisip dan Mati: Isi NDRE kosong dengan value dummy 
+        # agar tidak terhapus oleh filter dropna, sehingga tetap tampil di peta koordinat
+        for col in ["val_2025", "val_2026"]:
+            m_isna = df_ndre[col].isna()
+            df_ndre.loc[m_isna & df_ndre["is_sisip"], col] = 1.0  # Asumsikan sehat
+            df_ndre.loc[m_isna & df_ndre["is_mati"], col] = -1.0  # Asumsikan sakit
+            
         df = pd.merge(df_ndre, df_coord, on=["n_baris", "n_pokok"], how="inner")
-        df = df.dropna(subset=["n_baris", "n_pokok"])
+        # Hanya drop jika masih ada yang Na (Pohon Utamanya kosong NDRE-nya)
+        df = df.dropna(subset=["val_2025", "val_2026", "n_baris", "n_pokok"])
         
         if df.empty:
             st.error("❌ Gagal menyatukan nilai NDRE dengan Grid. Periksa anomali ID Pohon.")
