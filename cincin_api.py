@@ -83,15 +83,15 @@ def get_stats_html(df, suffix):
         parit_trees = df[f"parit_{suffix}"].sum()
         panjang_parit_m = parit_trees * 9  # Jarak tanam standar ~9 meter
         html += f"""
-        <div style="background-color: #1e212b; padding: 12px; border-radius: 8px; border: 1.5px dashed #7f8c8d; border-left: 5px solid #95a5a6; margin-bottom: 15px;">
-            <div style="color: #bdc3c7; font-size: 0.75rem; font-weight: 800; margin-bottom: 4px; letter-spacing: 0.5px;">⛏️ RENCANA PARIT ISOLASI</div>
-            <div style="color: white; font-size: 1.2rem; font-weight: 700; line-height: 1;">
-                {parit_trees:,} <span style="font-size: 0.8rem; font-weight: 400; color: #8e9ba9;">pohon pancang perbatasan</span> 
-                <span style="color:#7f8c8d; margin: 0 8px;">|</span> 
-                <span style="font-size: 0.95rem; color:#f1c40f;">Luas Galian ~ {panjang_parit_m:,} Meter</span>
-            </div>
-        </div>
-        """
+<div style="background-color: #1e212b; padding: 12px; border-radius: 8px; border: 1.5px dashed #7f8c8d; border-left: 5px solid #95a5a6; margin-bottom: 15px;">
+    <div style="color: #bdc3c7; font-size: 0.75rem; font-weight: 800; margin-bottom: 4px; letter-spacing: 0.5px;">⛏️ RENCANA PARIT ISOLASI</div>
+    <div style="color: white; font-size: 1.2rem; font-weight: 700; line-height: 1;">
+        {parit_trees:,} <span style="font-size: 0.8rem; font-weight: 400; color: #8e9ba9;">pohon pancang perbatasan</span> 
+        <span style="color:#7f8c8d; margin: 0 8px;">|</span> 
+        <span style="font-size: 0.95rem; color:#f1c40f;">Luas Galian ~ {panjang_parit_m:,} Meter</span>
+    </div>
+</div>
+"""
     return html
 
 def calc_cincin_api(df, val_col, suffix, threshold=0.15, min_sick_neighbors=3):
