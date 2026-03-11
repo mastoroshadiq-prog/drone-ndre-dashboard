@@ -413,35 +413,6 @@ def render_cincin_api_tab(data: dict, selected_dataset_tag: str):
         st.warning("⚠️ Tidak ada blok dengan histori NDRE 2025 di dataset ini untuk dianalisis.")
         return
 
-    # LEADERBOARD: Top 10 Perubahan Ekstrim
-    df_rank = pd.DataFrame(valid_bloks)
-    for c in ["count_degraded", "count_improved", "avg_delta"]:
-        if c in df_rank.columns:
-            df_rank[c] = pd.to_numeric(df_rank[c], errors="coerce").fillna(0)
-
-    st.markdown("### 🏆 Peringkat Perubahan Ekstrim (Top 10 Blok)")
-    col_l1, col_l2 = st.columns(2)
-    with col_l1:
-        st.markdown("<div style='background-color:#ffeaea; padding:10px; border-radius:8px; border-left:5px solid #c0392b;'>"
-                    "<h5 style='color:#c0392b; margin:0;'>🔻 Top 10 Penurunan Drastis (Kritis)</h5></div><br>", unsafe_allow_html=True)
-        if "count_degraded" in df_rank.columns:
-            top_bad = df_rank.nlargest(10, "count_degraded")
-            bad_data = []
-            for i, (_, r) in enumerate(top_bad.iterrows(), 1):
-                bad_data.append({"Rank": i, "Divisi": r.get('divisi'), "Blok": r.get('blok'), "Pohon Menurun": int(r.get('count_degraded',0)), "Avg Delta": f"{r.get('avg_delta',0):.3f}"})
-            st.dataframe(pd.DataFrame(bad_data), use_container_width=True, hide_index=True)
-            
-    with col_l2:
-        st.markdown("<div style='background-color:#eafae3; padding:10px; border-radius:8px; border-left:5px solid #2ecc71;'>"
-                    "<h5 style='color:#27ae60; margin:0;'>🌟 Top 10 Peningkatan (Membaik)</h5></div><br>", unsafe_allow_html=True)
-        if "count_improved" in df_rank.columns:
-            top_good = df_rank.nlargest(10, "count_improved")
-            good_data = []
-            for i, (_, r) in enumerate(top_good.iterrows(), 1):
-                good_data.append({"Rank": i, "Divisi": r.get('divisi'), "Blok": r.get('blok'), "Pohon Membaik": int(r.get('count_improved',0)), "Avg Delta": f"{r.get('avg_delta',0):.3f}"})
-            st.dataframe(pd.DataFrame(good_data), use_container_width=True, hide_index=True)
-            
-    st.markdown("---")
     st.markdown("### 🔍 Analisis Peta Spasial Cincin Api per Blok")
 
     div_bloks = sorted(list(set([(b['divisi'], b['blok']) for b in valid_bloks])))

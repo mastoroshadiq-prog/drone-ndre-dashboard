@@ -21,6 +21,7 @@ from supabase_helper import (
     fetch_divisi_summary,
     fetch_transition_matrix,
     fetch_koordinat_blok,
+    fetch_global_sisip_stats,
     get_supabase_client,
 )
 from cincin_api import render_cincin_api_tab
@@ -355,6 +356,8 @@ def load_all_data(selected_datasets: tuple, divisi_filter: str):
             client, dataset_tags=tags, divisi=div_arg, max_rows=110000,
         )
         divisi_summary, blok_summary, transition = compute_from_raw(raw_rows)
+        
+    sisip_stats = fetch_global_sisip_stats(client, dataset_tags=tags, divisi=div_arg)
 
     return {
         "divisi_summary": divisi_summary,
@@ -362,6 +365,7 @@ def load_all_data(selected_datasets: tuple, divisi_filter: str):
         "transition":     transition,
         "anomaly":        anomaly,
         "view_ok":        view_ok,
+        "sisip_stats":    sisip_stats,
     }
 
 
@@ -1371,6 +1375,83 @@ def render_recommendations(data: Dict):
 
 
 # ══════════════════════════════════════════════════════════════════
+# SECTION 8: TOP EKSTRIM (LEADERBOARD)
+# ══════════════════════════════════════════════════════════════════
+def render_top_ekstrim_tab(data: Dict):
+    st.header("🏆 Peringkat Blok Perubahan Ekstrim (Top 10)")
+    st.caption("Menampilkan 10 Blok teratas dengan tingkat perubahan NDRE dan klasifikasi paling drastis antara 2025 dan 2026.")
+
+    blok_rows = data.get("blok_summary", [])
+    if not blok_rows:
+        st.info("Data ringkasan blok belum tersedia.")
+        return
+
+    # Filter khusus blok yang punya histori perbandingan lengkap
+    valid_bloks = [b for b in blok_rows if b.get('pohon_lengkap', 0) > 0]
+    if not valid_bloks:
+        st.warning("⚠️ Tidak ada histori NDRE untuk diurutkan peringkatnya.")
+        return
+
+    df_rank = pd.DataFrame(valid_bloks)
+    for c in ["count_degraded", "count_improved", "avg_delta"]:
+        if c in df_rank.columns:
+            df_rank[c] = pd.to_numeric(df_rank[c], errors="coerce").fillna(0)
+            
+    # Buat format Label Blok yang rapi
+    df_rank["label_blok"] = df_rank.apply(lambda r: f"Blok {format_blok_display(r.get('blok', ''))} ({r.get('divisi', '')})", axis=1)
+
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("<h5 style='color:#c0392b; text-align:center;'>🔻 Top 10 Penurunan Paling Kritis</h5>", unsafe_allow_html=True)
+        if "count_degraded" in df_rank.columns:
+            top_bad = df_rank.nlargest(10, "count_degraded").sort_values("count_degraded", ascending=True)
+            if not top_bad.empty:
+                fig_bad = px.bar(
+                    top_bad, x="count_degraded", y="label_blok", orientation="h",
+                    text="count_degraded", color="count_degraded",
+                    color_continuous_scale=[[0, "#f5b7b1"], [1, "#922b21"]],
+                    labels={"count_degraded": "Jumlah Pohon Menurun", "label_blok": "Nama Blok"}
+                )
+                fig_bad.update_layout(
+                    height=450, showlegend=False, 
+                    coloraxis_showscale=False,
+                    xaxis_title="Total Pohon Kritis (Merosot Kelas)",
+                    yaxis_title="",
+                    plot_bgcolor="white",
+                    margin=dict(r=20, l=120, b=0, t=10)
+                )
+                fig_bad.update_traces(textposition='outside')
+                st.plotly_chart(fig_bad, use_container_width=True, key="top_10_bad_chart")
+            else:
+                st.write("Tidak ada penurunan ekstrem.")
+
+    with col2:
+        st.markdown("<h5 style='color:#27ae60; text-align:center;'>🌟 Top 10 Peningkatan (Membaik)</h5>", unsafe_allow_html=True)
+        if "count_improved" in df_rank.columns:
+            top_good = df_rank.nlargest(10, "count_improved").sort_values("count_improved", ascending=True)
+            if not top_good.empty:
+                fig_good = px.bar(
+                    top_good, x="count_improved", y="label_blok", orientation="h",
+                    text="count_improved", color="count_improved",
+                    color_continuous_scale=[[0, "#abebc6"], [1, "#1d8348"]],
+                    labels={"count_improved": "Jumlah Pohon Membaik", "label_blok": "Nama Blok"}
+                )
+                fig_good.update_layout(
+                    height=450, showlegend=False, 
+                    coloraxis_showscale=False,
+                    xaxis_title="Total Pohon Membaik (Naik Kelas)",
+                    yaxis_title="",
+                    plot_bgcolor="white",
+                    margin=dict(r=20, l=120, b=0, t=10)
+                )
+                fig_good.update_traces(textposition='outside')
+                st.plotly_chart(fig_good, use_container_width=True, key="top_10_good_chart")
+            else:
+                st.write("Tidak ada peningkatan signifikan.")
+                
+
+# ══════════════════════════════════════════════════════════════════
 # MAIN
 # ══════════════════════════════════════════════════════════════════
 def main():
@@ -1461,17 +1542,27 @@ def main():
     # Data header
     total_div = sum(r.get("total_pohon", 0) or 0 for r in data["divisi_summary"])
     total_anom = len(data["anomaly"])
+    stats_sisip = data.get("sisip_stats", {})
+    sisip_26 = stats_sisip.get("sisip_2026", 0)
+    sisip_25 = stats_sisip.get("sisip_2025", 0)
+    
     if total_div > 0:
-        st.caption(
-            f"✅ Data dimuat: **{total_div:,} pohon** terpantau · "
-            f"**{total_anom}** anomali koordinat · "
-            f"Filter: {divisi_filter} | Dataset: {', '.join(tags_tuple)}"
-        )
+        st.markdown(f"""
+        <div style="margin-bottom: 15px; padding: 12px; background: #eafae3; border-left: 5px solid #27ae60; border-radius: 6px;">
+            <strong style="color: #1a472a; font-size: 1.05rem;">ℹ️ Informasi Keseluruhan Blok:</strong><br>
+            <span style="color: #2c3e50;">
+            • Total Tanaman Dewasa Terpantau: <b>{total_div:,} pohon</b><br>
+            • Anomali Data Koordinat: <b>{total_anom:,} titik</b><br>
+            • Pohon Sisip / TBM (2026): <b>{sisip_26:,} pohon</b> | Sisip (2025): <b>{sisip_25:,} pohon</b>
+            </span>
+        </div>
+        """, unsafe_allow_html=True)
 
-    # Tabs — 4 tab utama
-    tab1, tab2, tab3, tab4 = st.tabs([
+    # Tabs — 5 tab utama
+    tab1, tab2, tab5, tab3, tab4 = st.tabs([
         "📅 Tren 2025 vs 2026",
         "🎯 Tren & Hotspot",
+        "🏆 Top Ekstrim",
         "⚠️ Anomali Data",
         "🔥 Analisis Cincin Api",
     ])
@@ -1480,6 +1571,8 @@ def main():
         render_divisi_comparison(data)
     with tab2:
         render_trend_hotspot(data)
+    with tab5:
+        render_top_ekstrim_tab(data)
     with tab3:
         render_anomaly_section(data)
     with tab4:

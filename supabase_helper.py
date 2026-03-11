@@ -251,3 +251,30 @@ def fetch_koordinat_blok(
     except Exception:
         return []
 
+
+def fetch_global_sisip_stats(client: Client, dataset_tags: Optional[List[str]] = None, divisi: Optional[str] = None) -> Dict[str, int]:
+    """Mengambil jumlah pohon berstatus Sisip menggunakan fast COUNT(*) via query ilike pada kolom raw_csv_json."""
+    base_query = client.table("kebun_observasi_ndre_comparison")
+    filters = []
+    if dataset_tags:
+        filters.append({"op": "in", "column": "dataset_tag", "value": dataset_tags})
+    if divisi and divisi != "SEMUA":
+        filters.append({"op": "eq", "column": "divisi", "value": divisi})
+        
+    def _apply(q):
+        for f in filters:
+            q = getattr(q, f["op"] if f["op"] != "in" else "in_")(f["column"], f["value"])
+        return q
+
+    try:
+        q_26 = _apply(client.table("kebun_observasi_ndre_comparison").select("id_npokok", count="exact"))
+        res_26 = q_26.ilike("raw_csv_json->source_2026->>ket", "%Sisip%").limit(1).execute()
+        count_26 = res_26.count if hasattr(res_26, "count") and res_26.count is not None else len(res_26.data)
+        
+        q_25 = _apply(client.table("kebun_observasi_ndre_comparison").select("id_npokok", count="exact"))
+        res_25 = q_25.ilike("raw_csv_json->source_2025->>ket", "%Sisip%").limit(1).execute()
+        count_25 = res_25.count if hasattr(res_25, "count") and res_25.count is not None else len(res_25.data)
+        return {"sisip_2026": count_26, "sisip_2025": count_25}
+    except Exception:
+        return {"sisip_2026": 0, "sisip_2025": 0}
+
