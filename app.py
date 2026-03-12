@@ -21,7 +21,6 @@ from supabase_helper import (
     fetch_divisi_summary,
     fetch_transition_matrix,
     fetch_koordinat_blok,
-    fetch_global_sisip_stats,
     get_supabase_client,
 )
 from cincin_api import render_cincin_api_tab
@@ -357,15 +356,12 @@ def load_all_data(selected_datasets: tuple, divisi_filter: str):
         )
         divisi_summary, blok_summary, transition = compute_from_raw(raw_rows)
         
-    sisip_stats = fetch_global_sisip_stats(client, dataset_tags=tags, divisi=div_arg)
-
     return {
         "divisi_summary": divisi_summary,
         "blok_summary":   blok_summary,
         "transition":     transition,
         "anomaly":        anomaly,
         "view_ok":        view_ok,
-        "sisip_stats":    sisip_stats,
     }
 
 
@@ -1624,18 +1620,13 @@ def main():
     # Data header
     total_div = sum(r.get("total_pohon", 0) or 0 for r in data["divisi_summary"])
     total_anom = len(data["anomaly"])
-    stats_sisip = data.get("sisip_stats", {})
-    sisip_26 = stats_sisip.get("sisip_2026", 0)
-    sisip_25 = stats_sisip.get("sisip_2025", 0)
-    
     if total_div > 0:
         st.markdown(f"""
         <div style="margin-bottom: 15px; padding: 12px; background: #eafae3; border-left: 5px solid #27ae60; border-radius: 6px;">
             <strong style="color: #1a472a; font-size: 1.05rem;">ℹ️ Informasi Keseluruhan Blok:</strong><br>
             <span style="color: #2c3e50;">
             • Total Tanaman Dewasa Terpantau: <b>{total_div:,} pohon</b><br>
-            • Anomali Data Koordinat: <b>{total_anom:,} titik</b><br>
-            • Pohon Sisip / TBM (2026): <b>{sisip_26:,} pohon</b> | Sisip (2025): <b>{sisip_25:,} pohon</b>
+            • Anomali Data Koordinat: <b>{total_anom:,} titik</b>
             </span>
         </div>
         """, unsafe_allow_html=True)
