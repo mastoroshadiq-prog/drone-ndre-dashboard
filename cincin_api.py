@@ -143,6 +143,12 @@ def get_stats_html(df, suffix, trench_cfg=None):
         • Overhead ({overhead_pct:.1f}%): <b>{format_rupiah(overhead_biaya)}</b><br>
         • <span style="color:#f1c40f; font-size:1.02rem;">Total Estimasi Anggaran: <b>{format_rupiah(total_anggaran)}</b></span>
     </div>
+    <div style="margin-top:10px; background:#17212f; border:1px solid #2f3d4c; border-radius:8px; padding:10px 12px; color:#d5dee8; font-size:0.88rem; line-height:1.6;">
+        <div style="font-weight:700; color:#9ecbff; margin-bottom:4px;">ℹ️ Cara hitung sederhana</div>
+        • <b>Pohon pancang perbatasan</b> = jumlah titik batas karantina yang ditandai sistem.<br>
+        • <b>Luas galian (meter)</b> = pohon pancang × jarak antar titik ({jarak_tanam_m:.2f} m).<br>
+        • <b>Volume galian (m³)</b> = panjang galian × lebar parit × kedalaman parit.
+    </div>
 </div>
 """
     return html
