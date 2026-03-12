@@ -180,12 +180,12 @@ def get_stats_html(df, suffix, trench_cfg=None):
         <span style="color:#7f8c8d; margin: 0 8px;">|</span> 
         <span style="font-size: 0.95rem; color:#f1c40f;">Luas Galian ~ {panjang_parit_m:,} Meter</span>
     </div>
-    <div style="margin-top:8px; color:#dfe6e9; font-size:0.82rem; line-height:1.5;">
+    <div style="margin-top:8px; color:#dfe6e9; font-size:0.95rem; line-height:1.7;">
         • Volume Galian: <b>{volume_galian_m3:,.1f} m³</b> ({lebar_parit_m:.2f}m × {dalam_parit_m:.2f}m × {panjang_parit_m:,.0f}m)<br>
         • Estimasi Biaya Galian: <b>{format_rupiah(biaya_galian)}</b><br>
         • Estimasi Biaya Pancang/Batas: <b>{format_rupiah(biaya_pancang)}</b><br>
         • Overhead ({overhead_pct:.1f}%): <b>{format_rupiah(overhead_biaya)}</b><br>
-        • <span style="color:#f1c40f;">Total Estimasi Anggaran: <b>{format_rupiah(total_anggaran)}</b></span>
+        • <span style="color:#f1c40f; font-size:1.02rem;">Total Estimasi Anggaran: <b>{format_rupiah(total_anggaran)}</b></span>
     </div>
 </div>
 """
