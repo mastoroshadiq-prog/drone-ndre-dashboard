@@ -491,6 +491,13 @@ def render_cincin_api_tab(data: dict, selected_dataset_tag: str):
             "jarak antar titik pancang, biaya satuan, dan faktor overhead operasional. "
             "Silakan sesuaikan dengan standar lapangan masing-masing estate/divisi."
         )
+        include_suspect_in_quarantine = st.checkbox(
+            "🧪 Libatkan pohon KUNING (suspect) ke zona karantina parit",
+            value=True,
+            key="trench_include_suspect",
+            help="Jika aktif, garis batas parit ditarik di luar area kuning. Jika nonaktif, pohon kuning dikeluarkan dari zona karantina."
+        )
+
         c1, c2, c3 = st.columns(3)
         with c1:
             jarak_tanam_m = st.number_input(
@@ -530,12 +537,6 @@ def render_cincin_api_tab(data: dict, selected_dataset_tag: str):
                 help="Tarif pekerjaan tanah per meter kubik sesuai harga lokal/vendor."
             )
         with c3:
-            include_suspect_in_quarantine = st.checkbox(
-                "Libatkan KUNING dalam zona karantina",
-                value=True,
-                key="trench_include_suspect",
-                help="Jika aktif, pohon KUNING (suspect) dianggap bagian area karantina sehingga garis parit berada di luar kuning. Jika nonaktif, kuning berada di luar zona karantina."
-            )
             biaya_pancang_per_titik = st.number_input(
                 "Biaya pancang per titik (Rp)",
                 min_value=0.0,
