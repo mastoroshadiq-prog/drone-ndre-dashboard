@@ -198,7 +198,7 @@ def get_hex_neighbors(b, p):
         offsets = [(0, -1), (0, 1), (-1, 0), (-1, 1), (1, 0), (1, 1)]
     return [(b + db, p + dp) for db, dp in offsets]
 
-def calc_cincin_api(df, val_col, suffix, threshold=0.15, min_sick_neighbors=3):
+def calc_cincin_api(df, val_col, suffix, threshold=0.15, min_sick_neighbors=3, include_suspect_in_quarantine=True):
     # Pre-map nilai NDRE asli untuk Smoothing
     val_map = {}
     for _, row in df.iterrows():
@@ -279,10 +279,14 @@ def calc_cincin_api(df, val_col, suffix, threshold=0.15, min_sick_neighbors=3):
                 df.at[row.name, f"kategori_{suffix}"] = "🟠 ORANYE (CINCIN)"
 
     # Fase 3: Rute Parit Isolasi (Trench)
+    quarantine_status = {"🔴 MERAH (INTI)", "⚫ KOSONG/MATI", "🟠 ORANYE (CINCIN)"}
+    if include_suspect_in_quarantine:
+        quarantine_status.add("🟡 KUNING (SUSPECT)")
+
     infected_coords = set()
     for _, row in df.iterrows():
         kat = df.at[row.name, f"kategori_{suffix}"]
-        if kat in ("🔴 MERAH (INTI)", "⚫ KOSONG/MATI", "🟠 ORANYE (CINCIN)", "🟡 KUNING (SUSPECT)"):
+        if kat in quarantine_status:
             infected_coords.add((int(row["n_baris"]), int(row["n_pokok"])))
             
     parit = []
@@ -301,7 +305,7 @@ def calc_cincin_api(df, val_col, suffix, threshold=0.15, min_sick_neighbors=3):
 
     return df
 
-def create_plotly_hex_map(df, val_col, suffix, year):
+def create_plotly_hex_map(df, val_col, suffix, year, include_suspect_in_quarantine=True):
     """Plotting spasial baris-pokok dengan layout mata lima (hex grid shift)"""
     fig = go.Figure()
     
@@ -324,9 +328,13 @@ def create_plotly_hex_map(df, val_col, suffix, year):
         
         if not parit_df.empty:
             # 1. Kumpulkan semua koordinat
+            quarantine_status = {"🔴 MERAH (INTI)", "⚫ KOSONG/MATI", "🟠 ORANYE (CINCIN)"}
+            if include_suspect_in_quarantine:
+                quarantine_status.add("🟡 KUNING (SUSPECT)")
+
             infected_coords = set()
             for _, row in df.iterrows():
-                if row[f"kategori_{suffix}"] in ("🔴 MERAH (INTI)", "⚫ KOSONG/MATI", "🟠 ORANYE (CINCIN)", "🟡 KUNING (SUSPECT)"):
+                if row[f"kategori_{suffix}"] in quarantine_status:
                     infected_coords.add((int(row["n_baris"]), int(row["n_pokok"])))
             
             parit_coords = set(zip(parit_df["n_baris"], parit_df["n_pokok"]))
@@ -522,6 +530,12 @@ def render_cincin_api_tab(data: dict, selected_dataset_tag: str):
                 help="Tarif pekerjaan tanah per meter kubik sesuai harga lokal/vendor."
             )
         with c3:
+            include_suspect_in_quarantine = st.checkbox(
+                "Libatkan KUNING dalam zona karantina",
+                value=True,
+                key="trench_include_suspect",
+                help="Jika aktif, pohon KUNING (suspect) dianggap bagian area karantina sehingga garis parit berada di luar kuning. Jika nonaktif, kuning berada di luar zona karantina."
+            )
             biaya_pancang_per_titik = st.number_input(
                 "Biaya pancang per titik (Rp)",
                 min_value=0.0,
@@ -595,7 +609,20 @@ def render_cincin_api_tab(data: dict, selected_dataset_tag: str):
             
         # Eksekusi Algoritma Inti Cincin Api Berbasis Mata Lima
         df = calc_cincin_api(df, "val_2025", "25", threshold=threshold_val)
-        df = calc_cincin_api(df, "val_2026", "26", threshold=threshold_val)
+        df = calc_cincin_api(
+            df,
+            "val_2025",
+            "25",
+            threshold=threshold_val,
+            include_suspect_in_quarantine=include_suspect_in_quarantine,
+        )
+        df = calc_cincin_api(
+            df,
+            "val_2026",
+            "26",
+            threshold=threshold_val,
+            include_suspect_in_quarantine=include_suspect_in_quarantine,
+        )
         
         col_map1, col_map2 = st.columns(2)
         
@@ -603,14 +630,26 @@ def render_cincin_api_tab(data: dict, selected_dataset_tag: str):
             st.markdown(f"<h5 style='text-align: center;'>Penerbangan 2025</h5>", unsafe_allow_html=True)
             st.markdown(get_stats_html(df, "25", trench_cfg), unsafe_allow_html=True)
             
-            fig_25 = create_plotly_hex_map(df, "val_2025", "25", "2025")
+            fig_25 = create_plotly_hex_map(
+                df,
+                "val_2025",
+                "25",
+                "2025",
+                include_suspect_in_quarantine=include_suspect_in_quarantine,
+            )
             st.plotly_chart(fig_25, use_container_width=True, key="fig25", config={'scrollZoom': True})
             
         with col_map2:
             st.markdown(f"<h5 style='text-align: center;'>Penerbangan 2026</h5>", unsafe_allow_html=True)
             st.markdown(get_stats_html(df, "26", trench_cfg), unsafe_allow_html=True)
             
-            fig_26 = create_plotly_hex_map(df, "val_2026", "26", "2026")
+            fig_26 = create_plotly_hex_map(
+                df,
+                "val_2026",
+                "26",
+                "2026",
+                include_suspect_in_quarantine=include_suspect_in_quarantine,
+            )
             st.plotly_chart(fig_26, use_container_width=True, key="fig26", config={'scrollZoom': True})
         
         st.markdown("<br>", unsafe_allow_html=True)
