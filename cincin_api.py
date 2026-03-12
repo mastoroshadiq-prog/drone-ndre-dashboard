@@ -484,6 +484,25 @@ def render_cincin_api_tab(data: dict, selected_dataset_tag: str):
         return
 
     # Parameter estimasi ditempatkan tepat di bawah dropdown divisi/blok
+    default_params = {
+        "jarak_tanam_m": 9.0,
+        "lebar_parit_m": 1.0,
+        "dalam_parit_m": 1.0,
+        "biaya_galian_per_m3": 75000.0,
+        "biaya_pancang_per_titik": 15000.0,
+        "overhead_pct": 10.0,
+        "include_suspect_in_quarantine": True,
+    }
+
+    # Nilai yang dipakai kalkulasi (applied) tidak berubah sampai tombol aksi ditekan
+    for k, v in default_params.items():
+        applied_key = f"applied_{k}"
+        draft_key = f"draft_{k}"
+        if applied_key not in st.session_state:
+            st.session_state[applied_key] = v
+        if draft_key not in st.session_state:
+            st.session_state[draft_key] = st.session_state[applied_key]
+
     with st.expander("⚙️ Parameter Dinamis Estimasi Parit Isolasi & Anggaran", expanded=False):
         st.info(
             "ℹ️ **Kenapa parameter ini dibutuhkan?** "
@@ -491,79 +510,92 @@ def render_cincin_api_tab(data: dict, selected_dataset_tag: str):
             "jarak antar titik pancang, biaya satuan, dan faktor overhead operasional. "
             "Silakan sesuaikan dengan standar lapangan masing-masing estate/divisi."
         )
-        include_suspect_in_quarantine = st.checkbox(
-            "🧪 Libatkan pohon KUNING (suspect) ke zona karantina parit",
-            value=True,
-            key="trench_include_suspect",
-            help="Jika aktif, garis batas parit ditarik di luar area kuning. Jika nonaktif, pohon kuning dikeluarkan dari zona karantina."
-        )
+        with st.form("form_trench_params"):
+            include_suspect_in_quarantine = st.checkbox(
+                "🧪 Libatkan pohon KUNING (suspect) ke zona karantina parit",
+                key="draft_include_suspect_in_quarantine",
+                help="Jika aktif, garis batas parit ditarik di luar area kuning. Jika nonaktif, pohon kuning dikeluarkan dari zona karantina."
+            )
 
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            jarak_tanam_m = st.number_input(
-                "Jarak antar titik (meter)",
-                min_value=1.0,
-                max_value=15.0,
-                value=9.0,
-                step=0.5,
-                key="trench_jarak",
-                help="Dipakai untuk konversi jumlah titik pancang menjadi estimasi panjang parit."
-            )
-            lebar_parit_m = st.number_input(
-                "Lebar parit (meter)",
-                min_value=0.3,
-                max_value=5.0,
-                value=1.0,
-                step=0.1,
-                key="trench_lebar",
-                help="Komponen dimensi volume galian. Semakin lebar, volume dan biaya naik."
-            )
-        with c2:
-            dalam_parit_m = st.number_input(
-                "Kedalaman parit (meter)",
-                min_value=0.3,
-                max_value=5.0,
-                value=1.0,
-                step=0.1,
-                key="trench_dalam",
-                help="Komponen dimensi volume galian. Semakin dalam, volume dan biaya naik."
-            )
-            biaya_galian_per_m3 = st.number_input(
-                "Biaya galian per m³ (Rp)",
-                min_value=0.0,
-                value=75000.0,
-                step=5000.0,
-                key="trench_biaya_m3",
-                help="Tarif pekerjaan tanah per meter kubik sesuai harga lokal/vendor."
-            )
-        with c3:
-            biaya_pancang_per_titik = st.number_input(
-                "Biaya pancang per titik (Rp)",
-                min_value=0.0,
-                value=15000.0,
-                step=1000.0,
-                key="trench_biaya_pancang",
-                help="Biaya material + tenaga untuk setiap titik pancang batas parit."
-            )
-            overhead_pct = st.number_input(
-                "Overhead/contingency (%)",
-                min_value=0.0,
-                max_value=100.0,
-                value=10.0,
-                step=0.5,
-                key="trench_overhead",
-                help="Cadangan biaya operasional tak langsung (transport, supervisi, risiko lapangan)."
-            )
-        st.caption("Tip: arahkan kursor ke ikon ⓘ pada tiap input untuk penjelasan ringkas parameter.")
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                jarak_tanam_m = st.number_input(
+                    "Jarak antar titik (meter)",
+                    min_value=1.0,
+                    max_value=15.0,
+                    step=0.5,
+                    key="draft_jarak_tanam_m",
+                    help="Dipakai untuk konversi jumlah titik pancang menjadi estimasi panjang parit."
+                )
+                lebar_parit_m = st.number_input(
+                    "Lebar parit (meter)",
+                    min_value=0.3,
+                    max_value=5.0,
+                    step=0.1,
+                    key="draft_lebar_parit_m",
+                    help="Komponen dimensi volume galian. Semakin lebar, volume dan biaya naik."
+                )
+            with c2:
+                dalam_parit_m = st.number_input(
+                    "Kedalaman parit (meter)",
+                    min_value=0.3,
+                    max_value=5.0,
+                    step=0.1,
+                    key="draft_dalam_parit_m",
+                    help="Komponen dimensi volume galian. Semakin dalam, volume dan biaya naik."
+                )
+                biaya_galian_per_m3 = st.number_input(
+                    "Biaya galian per m³ (Rp)",
+                    min_value=0.0,
+                    step=5000.0,
+                    key="draft_biaya_galian_per_m3",
+                    help="Tarif pekerjaan tanah per meter kubik sesuai harga lokal/vendor."
+                )
+            with c3:
+                biaya_pancang_per_titik = st.number_input(
+                    "Biaya pancang per titik (Rp)",
+                    min_value=0.0,
+                    step=1000.0,
+                    key="draft_biaya_pancang_per_titik",
+                    help="Biaya material + tenaga untuk setiap titik pancang batas parit."
+                )
+                overhead_pct = st.number_input(
+                    "Overhead/contingency (%)",
+                    min_value=0.0,
+                    max_value=100.0,
+                    step=0.5,
+                    key="draft_overhead_pct",
+                    help="Cadangan biaya operasional tak langsung (transport, supervisi, risiko lapangan)."
+                )
+
+            cbtn1, cbtn2 = st.columns([1, 1])
+            with cbtn1:
+                apply_params = st.form_submit_button("✅ Terapkan Parameter", use_container_width=True)
+            with cbtn2:
+                reset_params = st.form_submit_button("↺ Reset Draft ke Nilai Aktif", use_container_width=True)
+
+            if apply_params:
+                for k in default_params.keys():
+                    st.session_state[f"applied_{k}"] = st.session_state[f"draft_{k}"]
+                st.success("Parameter berhasil diterapkan. Kalkulasi dan visualisasi diperbarui.")
+
+            if reset_params:
+                for k in default_params.keys():
+                    st.session_state[f"draft_{k}"] = st.session_state[f"applied_{k}"]
+                st.info("Draft dikembalikan ke nilai aktif saat ini.")
+
+        st.caption("Tip: ubah nilai di form lalu klik **Terapkan Parameter** agar perubahan berdampak ke peta dan estimasi.")
 
     trench_cfg = {
-        "jarak_tanam_m": jarak_tanam_m,
-        "lebar_parit_m": lebar_parit_m,
-        "dalam_parit_m": dalam_parit_m,
-        "biaya_galian_per_m3": biaya_galian_per_m3,
-        "biaya_pancang_per_titik": biaya_pancang_per_titik,
-        "overhead_pct": overhead_pct,
+        "jarak_tanam_m": st.session_state["applied_jarak_tanam_m"],
+        "lebar_parit_m": st.session_state["applied_lebar_parit_m"],
+        "dalam_parit_m": st.session_state["applied_dalam_parit_m"],
+        "biaya_galian_per_m3": st.session_state["applied_biaya_galian_per_m3"],
+        "biaya_pancang_per_titik": st.session_state["applied_biaya_pancang_per_titik"],
+        "overhead_pct": st.session_state["applied_overhead_pct"],
     }
+
+    include_suspect_in_quarantine = st.session_state["applied_include_suspect_in_quarantine"]
 
     st.markdown("---")
 
